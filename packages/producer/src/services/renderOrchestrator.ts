@@ -882,7 +882,8 @@ export async function executeRenderJob(
       job.error = error instanceof Error ? error.message : "render_cancelled";
       updateJobStatus(job, "cancelled", "Render cancelled", job.progress, onProgress);
       if (fileServer) {
-        await safeCleanup("close file server (cancel)", () => { fileServer.close(); }, log);
+        const fs = fileServer;
+        await safeCleanup("close file server (cancel)", () => { fs.close(); }, log);
       }
       if (probeSession) {
         const session = probeSession;
@@ -925,7 +926,8 @@ export async function executeRenderJob(
 
     // Cleanup
     if (fileServer) {
-      await safeCleanup("close file server (error)", () => { fileServer.close(); }, log);
+      const fs = fileServer;
+      await safeCleanup("close file server (error)", () => { fs.close(); }, log);
     }
     if (probeSession) {
       const session = probeSession;

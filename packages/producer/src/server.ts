@@ -391,7 +391,7 @@ export function createRenderHandlers(options: HandlerOptions = {}): RenderHandle
   };
 
   const outputs = (c: Context): Response => {
-    const token = c.req.param("token");
+    const token = c.req.param("token") ?? "";
     const artifact = store.get(token);
     if (!artifact) {
       return c.json({ success: false, error: "Output artifact not found or expired" }, 404);
