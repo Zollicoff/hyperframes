@@ -26,6 +26,7 @@ coverage/
 
 # Rendered output (not test fixtures — those use git LFS)
 output/
+!packages/producer/tests/*/output/
 
 # npm pack artifacts
 *.tgz
