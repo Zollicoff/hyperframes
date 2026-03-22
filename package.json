@@ -1,0 +1,19 @@
+{
+  "name": "hyperframes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm studio",
+    "build": "pnpm -r build",
+    "build:producer": "pnpm --filter @hyperframes/producer build",
+    "studio": "pnpm --filter @hyperframes/studio dev",
+    "build:hyperframes-runtime": "pnpm --filter @hyperframes/core build:hyperframes-runtime",
+    "build:hyperframes-runtime:modular": "pnpm --filter @hyperframes/core build:hyperframes-runtime:modular"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "concurrently": "^8.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}
