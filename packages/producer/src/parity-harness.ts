@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import puppeteer, { type Page } from "puppeteer";
+import puppeteer, { type Page } from "puppeteer-core";
 import { MEDIA_VISUAL_STYLE_PROPERTIES, quantizeTimeToFrame } from "./utils/parityContract.js";
 
 type ParityHarnessOptions = {
@@ -270,6 +270,7 @@ async function run(): Promise<void> {
   ensureDir(options.artifactsDir);
 
   const browser = await puppeteer.launch({
+    channel: "chrome",
     headless: true,
     defaultViewport: {
       width: options.width,
