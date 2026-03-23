@@ -21,7 +21,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
       - run: pnpm install --frozen-lockfile
@@ -29,25 +29,15 @@ jobs:
 
       - name: Publish @hyperframes/core
         run: pnpm --filter @hyperframes/core publish --access public --provenance --no-git-checks
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @hyperframes/engine
         run: pnpm --filter @hyperframes/engine publish --access public --provenance --no-git-checks
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @hyperframes/producer
         run: pnpm --filter @hyperframes/producer publish --access public --provenance --no-git-checks
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @hyperframes/studio
         run: pnpm --filter @hyperframes/studio publish --access public --provenance --no-git-checks
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish hyperframes (CLI)
         run: pnpm --filter hyperframes publish --access public --provenance --no-git-checks
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
