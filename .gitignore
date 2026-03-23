@@ -24,6 +24,9 @@ Thumbs.db
 coverage/
 .debug/
 
+# Producer regression test failures (generated debugging artifacts)
+packages/producer/tests/*/failures/
+
 # Rendered output (not test fixtures — those use git LFS)
 output/
 !packages/producer/tests/*/output/
