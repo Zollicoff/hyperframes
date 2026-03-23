@@ -17,13 +17,17 @@ jobs:
           - shard: fast
             args: "--sequential --exclude-tags slow"
           - shard: styles-a
-            args: "style-1-prod style-2-prod style-3-prod style-5-prod"
+            args: "style-1-prod style-2-prod style-3-prod"
           - shard: styles-b
-            args: "style-4-prod style-6-prod style-10-prod style-11-prod"
+            args: "style-4-prod style-5-prod style-6-prod"
           - shard: styles-c
-            args: "style-7-prod style-8-prod style-9-prod style-12-prod"
+            args: "style-7-prod style-8-prod style-9-prod"
           - shard: styles-d
-            args: "style-13-prod style-15-prod style-16-prod style-17-prod style-18-prod"
+            args: "style-10-prod style-11-prod style-12-prod"
+          - shard: styles-e
+            args: "style-13-prod style-15-prod style-16-prod"
+          - shard: styles-f
+            args: "style-17-prod style-18-prod"
     steps:
       - name: Checkout (with LFS)
         uses: actions/checkout@v4
