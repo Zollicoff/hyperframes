@@ -143,14 +143,13 @@ async function renderDocker(
   const startTime = Date.now();
 
   try {
-    await producer.renderComposition(projectDir, {
-      output: outputPath,
+    const job = producer.createRenderJob({
       fps: options.fps,
       quality: options.quality,
-      workers: options.workers ?? null,
-      gpu: options.gpu,
-      quiet: options.quiet,
+      workers: options.workers,
+      useGpu: options.gpu,
     });
+    await producer.executeRenderJob(job, projectDir, outputPath);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     errorBox("Render failed", message, "Try --docker for containerized rendering");

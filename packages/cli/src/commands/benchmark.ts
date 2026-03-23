@@ -103,13 +103,12 @@ export default defineCommand({
 
         try {
           const startTime = Date.now();
-          await producer.renderComposition(project.dir, {
-            output: outputPath,
+          const job = producer.createRenderJob({
             fps: config.fps,
             quality: config.quality,
             workers: config.workers,
-            quiet: true,
           });
+          await producer.executeRenderJob(job, project.dir, outputPath);
           const elapsedMs = Date.now() - startTime;
 
           let fileSize: number | null = null;

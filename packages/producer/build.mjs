@@ -57,4 +57,10 @@ await Promise.all([
   }),
 ]);
 
-console.log("[Build] Complete: dist/index.js, dist/public-server.js");
+// Generate .d.ts declarations (esbuild doesn't emit them)
+import { execSync } from "child_process";
+execSync("tsc --emitDeclarationOnly --declaration --declarationMap", {
+  stdio: "inherit",
+});
+
+console.log("[Build] Complete: dist/index.js, dist/public-server.js, *.d.ts");
