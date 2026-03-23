@@ -1,0 +1,107 @@
+---
+title: Compositions
+description: "The fundamental building block of a Hyperframes video."
+---
+
+A composition is an HTML document that defines a video timeline. Every clip — video, image, audio — must live inside a composition.
+
+## Structure
+
+Every composition needs a root element with `data-composition-id`:
+
+```html
+<div id="root" data-composition-id="root"
+     data-start="0" data-width="1920" data-height="1080">
+  <!-- Elements go here -->
+</div>
+```
+
+The `index.html` file is the top-level composition. It can contain nested compositions within it. Any composition can be imported into another — there is no special "root" type.
+
+## Clip Types
+
+A clip is any discrete block on the timeline, represented as an HTML element with data attributes:
+
+- `<video>` — Video clips, B-roll, A-roll
+- `<img>` — Static images, overlays
+- `<audio>` — Music, sound effects
+- `<div data-composition-id="...">` — Nested compositions (animations, grouped sequences)
+
+## Nested Compositions
+
+Embed one composition inside another by loading it from an external HTML file:
+
+```html
+<div
+  id="el-5"
+  data-composition-id="intro-anim"
+  data-composition-src="compositions/intro-anim.html"
+  data-start="0"
+  data-track-index="3"
+></div>
+```
+
+The framework automatically fetches the HTML file, extracts the `<template>` content, mounts it, executes scripts, and registers the timeline.
+
+### Composition File Format
+
+Each composition file wraps its content in a `<template>` tag:
+
+```html
+<!-- compositions/intro-anim.html -->
+<template id="intro-anim-template">
+  <div data-composition-id="intro-anim" data-width="1920" data-height="1080">
+    <div class="title">Welcome!</div>
+
+    <style>
+      [data-composition-id="intro-anim"] .title {
+        font-size: 72px; color: white; text-align: center;
+      }
+    </style>
+
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      tl.from(".title", { opacity: 0, y: -50, duration: 1 });
+      window.__timelines["intro-anim"] = tl;
+    </script>
+  </div>
+</template>
+```
+
+### Project Structure
+
+```
+project/
+├── index.html              # Root composition
+├── compositions/
+│   ├── intro-anim.html     # Intro animation
+│   ├── caption-overlay.html # Captions
+│   └── outro-title.html     # Outro
+```
+
+## Two Layers: Primitives and Scripts
+
+Every composition has two layers:
+
+- **HTML** — primitive clips (`video`, `img`, `audio`, nested compositions). The declarative structure: what plays, when, and on which track.
+- **Script** — effects, transitions, dynamic DOM, canvas, SVG — creative animation via GSAP. Scripts do **not** control media playback or clip visibility.
+
+<Warning>
+  Never use scripts to play/pause/seek media elements or to show/hide clips based on timing. The framework handles this automatically from data attributes. Scripts that duplicate this behavior will conflict with the framework.
+</Warning>
+
+## Variables
+
+Compositions can expose variables for dynamic content:
+
+```html
+<div data-composition-id="card" data-var-title="string" data-var-color="color">
+```
+
+## Listing Compositions
+
+Use the CLI to see all compositions in a project:
+
+```bash
+npx hyperframes compositions
+```

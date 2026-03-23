@@ -1,0 +1,60 @@
+---
+title: Contributing
+description: "How to contribute to Hyperframes."
+---
+
+Thanks for your interest in contributing to Hyperframes!
+
+## Getting Started
+
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/hyperframes.git`
+3. Install dependencies: `pnpm install`
+4. Create a branch: `git checkout -b my-feature`
+
+## Development
+
+```bash
+pnpm install        # Install all dependencies
+pnpm dev            # Run the studio (composition editor)
+pnpm build          # Build all packages
+pnpm -r typecheck   # Type-check all packages
+```
+
+### Running Tests
+
+```bash
+pnpm --filter @hyperframes/core test          # Core unit tests
+pnpm --filter @hyperframes/engine test        # Engine unit tests
+pnpm --filter @hyperframes/core test:hyperframe-runtime-ci  # Runtime contract tests
+```
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `@hyperframes/core` | Types, HTML generation, runtime, linter |
+| `@hyperframes/engine` | Seekable page-to-video capture engine |
+| `@hyperframes/producer` | Full rendering pipeline (capture + encode) |
+| `@hyperframes/studio` | Composition editor UI |
+| `hyperframes` | CLI for creating, previewing, and rendering |
+
+## Pull Requests
+
+- Use [conventional commit](https://www.conventionalcommits.org/) format for PR titles (e.g., `feat: add timeline export`, `fix: resolve seek overflow`)
+- CI must pass before merge (build, typecheck, tests, semantic PR title)
+- PRs require at least 1 approval
+
+## Reporting Issues
+
+- Use [GitHub Issues](https://github.com/heygen-com/hyperframes/issues) for bug reports and feature requests
+- Search existing issues before creating a new one
+- Include reproduction steps for bugs
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](https://github.com/heygen-com/hyperframes/blob/main/CODE_OF_CONDUCT.md).
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/heygen-com/hyperframes/blob/main/LICENSE).

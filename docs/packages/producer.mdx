@@ -1,0 +1,63 @@
+---
+title: "@hyperframes/producer"
+description: "Full HTML-to-video rendering pipeline."
+---
+
+The producer package combines the engine's capture capabilities with FFmpeg encoding to deliver a complete rendering pipeline.
+
+```bash
+npm install @hyperframes/producer
+```
+
+## What It Does
+
+The producer orchestrates the full render:
+
+1. **Loads** the composition HTML
+2. **Injects** the Hyperframes runtime
+3. **Waits** for readiness gates (`__playerReady`, `__renderReady`)
+4. **Captures** frames using the engine's BeginFrame pipeline
+5. **Encodes** to MP4 via FFmpeg
+6. **Mixes** audio tracks
+
+## Features
+
+- **Docker-based rendering** for deterministic output
+- **Quality presets** — draft, standard, high
+- **GPU encoding** support (NVENC, VideoToolbox, VAAPI)
+- **Parallel workers** for faster rendering
+- **Benchmark tooling** for finding optimal settings
+- **Regression harness** for visual regression testing
+
+## Programmatic Usage
+
+```typescript
+import { render } from '@hyperframes/producer';
+
+await render({
+  input: './my-video/index.html',
+  output: './output.mp4',
+  fps: 30,
+  quality: 'standard',
+});
+```
+
+## Docker Rendering
+
+For deterministic output, the producer renders inside a Docker container with a pinned Chrome version and font set:
+
+```bash
+# Via the CLI
+npx hyperframes render --docker -o output.mp4
+```
+
+## Regression Testing
+
+The producer includes a regression harness for comparing render output against golden baselines:
+
+```bash
+cd packages/producer
+pnpm docker:build:test   # Build test Docker image
+pnpm docker:test          # Run regression tests
+pnpm docker:test:update   # Regenerate golden baselines
+```

@@ -1,0 +1,47 @@
+---
+title: Templates
+description: "Built-in templates for common video patterns."
+---
+
+Hyperframes includes starter templates to help you get going quickly.
+
+## Using Templates
+
+```bash
+npx hyperframes init --template <name>
+```
+
+## Available Templates
+
+### blank
+
+Empty 1920x1080 composition with a GSAP timeline wired up. Start from scratch.
+
+```bash
+npx hyperframes init --template blank
+```
+
+### title-card
+
+Animated title and subtitle with GSAP fade-in/out. Good for intro cards.
+
+```bash
+npx hyperframes init --template title-card
+```
+
+### video-edit
+
+Video element with trimming, audio, and track controls. Starting point for video editing workflows.
+
+```bash
+npx hyperframes init --template video-edit
+```
+
+## Custom Templates
+
+Any directory with an `index.html` can serve as a template. Copy it manually or build your own init workflow.
+
+Your custom template just needs:
+1. An `index.html` with a `data-composition-id` root element
+2. A GSAP timeline registered in `window.__timelines`
+3. Any assets in the same directory

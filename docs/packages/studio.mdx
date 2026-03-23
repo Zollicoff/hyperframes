@@ -1,0 +1,40 @@
+---
+title: "@hyperframes/studio"
+description: "Composition editor UI."
+---
+
+The studio package provides a visual editor for creating and previewing Hyperframes compositions in the browser.
+
+```bash
+npm install @hyperframes/studio
+```
+
+## What It Does
+
+The studio is a React-based composition editor that provides:
+
+- **Live preview** — see your composition rendered in real-time
+- **Timeline view** — visual representation of clips and their timing
+- **Player controls** — play, pause, seek through your composition
+- **Hot reload** — edit HTML and see changes instantly
+
+## Running the Studio
+
+```bash
+# From the monorepo root
+pnpm dev
+
+# Or directly
+pnpm --filter @hyperframes/studio dev
+```
+
+The studio starts a development server with live preview.
+
+## Architecture
+
+The studio is a React application that:
+
+1. Loads your composition HTML into an iframe
+2. Injects the Hyperframes runtime for preview playback
+3. Provides a player interface for seeking and playback control
+4. Watches for file changes and hot-reloads the preview

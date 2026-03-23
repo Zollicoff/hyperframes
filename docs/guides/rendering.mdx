@@ -1,0 +1,54 @@
+---
+title: Rendering
+description: "Render compositions to MP4 locally or in Docker."
+---
+
+Render your Hyperframes compositions to MP4 with the CLI.
+
+```bash
+npx hyperframes render -o output.mp4
+```
+
+## Rendering Modes
+
+### Local Mode (default)
+
+Uses Puppeteer (bundled Chromium) + system FFmpeg. Fast for iteration.
+
+**Requires**: FFmpeg installed on your system.
+
+```bash
+npx hyperframes render -o output.mp4
+```
+
+### Docker Mode
+
+Deterministic output with an exact Chrome version and fonts. Use this for production renders and CI pipelines.
+
+**Requires**: Docker installed and running.
+
+```bash
+npx hyperframes render --docker -o output.mp4
+```
+
+<Note>
+  Docker mode uses `chrome-headless-shell` with BeginFrame control for frame-perfect, deterministic capture. This is the same pipeline used in production.
+</Note>
+
+## Options
+
+| Flag | Values | Default | Description |
+|------|--------|---------|-------------|
+| `-f, --fps` | 24, 30, 60 | 30 | Frames per second |
+| `-q, --quality` | draft, standard, high | standard | Encoding quality preset |
+| `-w, --workers` | 1-8 | auto | Parallel render workers |
+| `--gpu` | — | off | GPU encoding (NVENC, VideoToolbox, VAAPI) |
+| `-o, --output` | path | — | Output file path |
+| `--docker` | — | off | Use Docker for deterministic rendering |
+
+## Tips
+
+- Use `draft` quality during development for fast previews
+- Use `npx hyperframes benchmark` to find optimal settings for your system
+- 4 workers is usually the sweet spot for most compositions
+- Docker mode is slower but guarantees identical output across platforms

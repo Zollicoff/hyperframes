@@ -1,0 +1,100 @@
+---
+title: Frame Adapters
+description: "Bring your own animation runtime to Hyperframes."
+---
+
+The Frame Adapter pattern is how Hyperframes supports multiple animation runtimes. The core question every adapter answers:
+
+> What should the screen look like at frame N?
+
+If a runtime can answer that, it can plug into Hyperframes.
+
+## Adapter API (v0)
+
+```typescript
+type FrameAdapterContext = {
+  compositionId: string;
+  fps: number;
+  width: number;
+  height: number;
+  rootElement?: HTMLElement;
+};
+
+type FrameAdapter = {
+  id: string;
+  init?: (ctx: FrameAdapterContext) => Promise<void> | void;
+  getDurationFrames: () => number;
+  seekFrame: (frame: number) => Promise<void> | void;
+  destroy?: () => Promise<void> | void;
+};
+```
+
+## Required Semantics
+
+- `getDurationFrames()` must return a finite integer >= 0
+- `seekFrame(frame)` must support arbitrary seek order (forward, backward, random)
+- `seekFrame(frame)` must be idempotent for the same input frame
+- `seekFrame(frame)` must clamp internal time to the adapter's range
+- Adapters should be paused/seek-driven, not clock-driven
+
+## Host Orchestration
+
+The host normalizes frames before calling the adapter:
+
+```typescript
+normalizedFrame = clamp(Math.floor(frame), 0, durationFrames);
+```
+
+A typical render loop:
+
+```typescript
+await adapter.init?.({ compositionId, fps, width, height, rootElement });
+const durationFrames = adapter.getDurationFrames();
+
+for (let frame = 0; frame <= durationFrames; frame += 1) {
+  await adapter.seekFrame(frame);
+  // capture pixel buffer for this frame
+}
+
+await adapter.destroy?.();
+```
+
+## Determinism Contract
+
+These rules are non-negotiable for any adapter:
+
+- Canonical clock: `t = frame / fps`
+- No wall-clock dependencies (`Date.now`, drift-dependent logic)
+- No unseeded randomness
+- No render-time network fetches
+- Fixed output params (`fps`, `width`, `height`)
+- Finite duration only
+- Deterministic frame quantization before seek
+
+## Supported Runtimes
+
+First-party adapters:
+
+| Runtime | Seek Method | Status |
+|---------|------------|--------|
+| GSAP | `timeline.seek(frame / fps)` | Available |
+| CSS/WAAPI | `animation.currentTime` | Planned |
+| Lottie | Set animation frame/progress | Planned |
+| Three.js/WebGL | Compute deterministic scene state | Planned |
+| SVG/Anime | Implement seek + duration contract | Planned |
+
+Community adapters are welcome — if it can seek by frame, it belongs in Hyperframes.
+
+## Conformance Tests
+
+Every adapter should pass these minimum tests:
+
+1. **Repeatability** — seek same frame twice, get identical output
+2. **Random seek** — seek order `[90, 10, 50, 10]` produces deterministic results
+3. **Bounds** — negative and overflow frame values don't break
+4. **Duration** — returned duration is a finite integer
+5. **Cleanup** — no leaked timers/listeners after `destroy`
+
+<Info>
+  The Adapter API is currently at **v0** (experimental). Breaking changes are possible until v1.
+</Info>

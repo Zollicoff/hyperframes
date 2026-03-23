@@ -1,0 +1,65 @@
+---
+title: Common Mistakes
+description: "Pitfalls that break Hyperframes compositions."
+---
+
+These are mistakes that can't be caught by the linter. For automated checks, run `npx hyperframes lint`.
+
+## Animating Video Element Dimensions
+
+**Symptom**: Video frames stop updating, or browser performance drops.
+
+**Cause**: GSAP animating `width`, `height`, `top`, `left` directly on a `<video>` element can cause the browser to stop rendering frames.
+
+```javascript
+// BROKEN — animating video element dimensions
+tl.to("#el-video", { width: 500, height: 280, top: 700, left: 1400 }, 26);
+
+// FIXED — animate a wrapper div, video fills it at 100%
+tl.to("#pip-wrapper", { width: 500, height: 280, top: 700, left: 1400 }, 26);
+```
+
+Use a non-timed wrapper `<div>` for visual effects like picture-in-picture. Animate the wrapper; let the video fill it.
+
+## Controlling Media Playback in Scripts
+
+**Symptom**: Audio/video playback is out of sync, or plays when it shouldn't.
+
+**Cause**: Calling `video.play()`, `video.pause()`, or setting `audio.currentTime` in your scripts. The framework owns all media playback.
+
+```javascript
+// BROKEN — conflicts with framework media sync
+document.getElementById("el-video").play();
+document.getElementById("el-audio").currentTime = 5;
+
+// FIXED — don't do this. The framework handles it.
+// Use GSAP for visual animations only:
+tl.to("#el-video", { opacity: 1, duration: 0.5 }, 0);
+```
+
+## Composition Duration Shorter Than Video
+
+**Symptom**: Video plays for a few seconds then stops. Timeline shows 8-10 seconds even though the video is minutes long.
+
+**Cause**: The composition duration equals the GSAP timeline duration, not `data-duration` on the video. If your last GSAP animation ends at 8 seconds, the composition is 8 seconds long.
+
+```javascript
+// BROKEN — timeline is only 7.8s long, video cuts off
+tl.to("#lower-third", { left: -640, duration: 0.6 }, 7.2);
+
+// FIXED — extend timeline to match video length
+tl.to("#lower-third", { left: -640, duration: 0.6 }, 7.2);
+tl.set({}, {}, 283); // extends timeline to 283 seconds
+```
+
+`tl.set({}, {}, TIME)` adds a zero-duration tween at the specified time, extending the timeline without affecting any elements.
+
+## Debugging Checklist
+
+When something doesn't work, check in this order:
+
+1. **Run the linter**: `npx hyperframes lint` — catches most structural issues
+2. **Timeline registered?** Is `window.__timelines["<id>"]` set? Does the key match `data-composition-id`?
+3. **GSAP-only animations?** Only animate visual properties (opacity, transform, color)
+4. **Timeline long enough?** Add `tl.set({}, {}, DURATION)` at the end
+5. **Console errors?** Open browser console — runtime errors show as `[Browser:ERROR]`

@@ -1,0 +1,44 @@
+---
+title: "@hyperframes/engine"
+description: "Seekable page-to-video capture engine."
+---
+
+The engine package provides the low-level video capture pipeline: loading an HTML page in headless Chrome and capturing it frame-by-frame.
+
+```bash
+npm install @hyperframes/engine
+```
+
+## What It Does
+
+The engine:
+
+1. Launches headless Chrome (`chrome-headless-shell`)
+2. Loads your HTML composition
+3. Uses Chrome's `HeadlessExperimental.beginFrame` API for deterministic frame capture
+4. Captures each frame as a pixel buffer
+5. Hands frames to FFmpeg for encoding
+
+## Key Features
+
+- **BeginFrame rendering** — frame-perfect capture using Chrome DevTools Protocol
+- **Deterministic seek** — every frame is independently seeked, not played in realtime
+- **Configurable FPS** — 24, 30, or 60 frames per second
+- **Quality presets** — draft, standard, high encoding settings
+
+## Configuration
+
+```typescript
+import type { EngineConfig } from '@hyperframes/engine';
+
+const config: EngineConfig = {
+  fps: 30,
+  width: 1920,
+  height: 1080,
+  quality: 'standard',
+};
+```
+
+## When to Use
+
+Most users should use the [`@hyperframes/producer`](/packages/producer) package or the [CLI](/packages/cli) instead of the engine directly. The engine is useful when you need low-level control over the capture pipeline.

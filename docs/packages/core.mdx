@@ -1,0 +1,58 @@
+---
+title: "@hyperframes/core"
+description: "Types, HTML generation, runtime, and linter."
+---
+
+The core package provides the foundational types, HTML parsing/generation, runtime, and composition linter that all other packages depend on.
+
+```bash
+npm install @hyperframes/core
+```
+
+## What's Inside
+
+| Module | Description |
+|--------|-------------|
+| `core.types` | TypeScript types for compositions, clips, timelines |
+| `parsers/` | HTML-to-composition parsing |
+| `generators/` | Composition-to-HTML generation |
+| `runtime/` | The Hyperframes runtime (IIFE + ESM builds) |
+| `lint/` | Composition linter rules |
+| `adapters/` | Frame Adapter types and GSAP adapter |
+| `templates/` | HTML composition templates |
+
+## Runtime Builds
+
+The runtime is built in two formats:
+
+- **`hyperframe.runtime.iife.js`** — for browser iframe bootstrap (preview)
+- **`hyperframe.runtime.mjs`** — for Node.js/tooling/tests
+
+Build the runtime:
+
+```bash
+pnpm --filter @hyperframes/core build:hyperframes-runtime
+```
+
+## Linter
+
+The composition linter checks for common structural issues:
+
+```typescript
+import { lintHyperframeHtml } from '@hyperframes/core';
+
+const issues = lintHyperframeHtml(htmlString);
+```
+
+Detected issues include:
+- Missing timeline registration
+- Unmuted video elements
+- Missing `class="clip"` on timed elements
+- Deprecated attribute names
+- Missing composition dimensions
+
+## Types
+
+```typescript
+import type { Composition, Clip, RenderConfig } from '@hyperframes/core';
+```

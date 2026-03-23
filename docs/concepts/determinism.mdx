@@ -1,0 +1,59 @@
+---
+title: Deterministic Rendering
+description: "Same input, identical output. Every time."
+---
+
+Hyperframes is built around a core guarantee: **the same composition always produces the same video**. This is what makes automated pipelines, CI testing, and AI-driven workflows reliable.
+
+## How It Works
+
+The rendering pipeline is frame-by-frame and seek-driven:
+
+1. **Frame clock**: `time = floor(frame) / fps` — no wall-clock dependency
+2. **Seek contract**: `renderSeek(time)` pauses all animations and deterministically seeks to the exact frame
+3. **Capture**: Chrome's `HeadlessExperimental.beginFrame` API captures the pixel buffer
+4. **Encode**: FFmpeg encodes frames into the final video
+
+No realtime playback is involved in rendering. Every frame is independently seeked and captured.
+
+## What Makes It Deterministic
+
+- **No wall-clock dependencies** — rendering doesn't use `Date.now()`, `requestAnimationFrame`, or system timers
+- **No unseeded randomness** — `Math.random()` without a seed breaks determinism
+- **No render-time network fetches** — all assets must be loaded before rendering starts
+- **Fixed output parameters** — `fps`, `width`, and `height` are locked before the first frame
+- **Finite duration** — every composition has a known, finite length
+
+## Docker Mode
+
+For maximum reproducibility, render in Docker:
+
+```bash
+npx hyperframes render --docker -o output.mp4
+```
+
+Docker mode uses an exact Chrome version and font set, ensuring:
+- Same Chromium rendering engine across all platforms
+- Same system fonts (no platform-specific font substitution)
+- Same FFmpeg encoder version
+
+## Preview vs. Render Parity
+
+The browser preview and the rendered MP4 should match. Hyperframes achieves this through:
+
+- **One runtime** — the same `hyperframe.runtime` drives both preview and render
+- **Producer-canonical behavior** — the producer's seek semantics are the source of truth
+- **Readiness gates** — `__playerReady` and `__renderReady` ensure the composition is fully loaded before any frame is captured
+
+<Note>
+  Local rendering (without Docker) may show slight differences due to platform-specific font rendering and Chrome version. Use Docker mode when exact reproducibility matters.
+</Note>
+
+## For Adapter Authors
+
+If you're building a [Frame Adapter](/concepts/frame-adapters), your adapter must follow the determinism contract:
+
+- `seekFrame(frame)` must be idempotent — same frame, same result
+- No side effects that depend on call order (must handle random access)
+- No async operations that resolve after the frame is "committed"
+- Clean lifecycle: `init` → `seekFrame` (N times) → `destroy`

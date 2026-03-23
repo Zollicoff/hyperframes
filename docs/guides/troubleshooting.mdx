@@ -1,0 +1,68 @@
+---
+title: Troubleshooting
+description: "Solutions for common Hyperframes issues."
+---
+
+## "No composition found"
+
+Your directory needs an `index.html` with a valid composition. Run `npx hyperframes init` to create one.
+
+## "FFmpeg not found"
+
+Local rendering requires FFmpeg. Install it for your platform:
+
+<CodeGroup>
+```bash macOS
+brew install ffmpeg
+```
+
+```bash Ubuntu/Debian
+sudo apt install ffmpeg
+```
+
+```bash Windows
+# Download from https://ffmpeg.org/download.html
+# Add to your PATH
+```
+</CodeGroup>
+
+## Lint Errors
+
+Run `npx hyperframes lint` to check for common issues:
+
+- Missing `data-composition-id` on root element
+- Missing `class="clip"` on timed elements
+- Overlapping timelines or invalid data attributes
+- Unmuted video elements
+- Deprecated attribute names (`data-layer`, `data-end`)
+
+## Preview Not Updating
+
+Make sure you're editing the `index.html` in the project directory. The preview server watches for file changes and auto-reloads.
+
+If changes still don't appear:
+1. Check the terminal for errors
+2. Try stopping and restarting `npx hyperframes dev`
+3. Hard-refresh the browser (Ctrl+Shift+R / Cmd+Shift+R)
+
+## Render Looks Different from Preview
+
+Use `--docker` mode for deterministic output. Local renders may differ due to:
+
+- Font availability (different fonts on different platforms)
+- Chrome version (local Chromium vs. Docker's pinned version)
+- System-specific rendering differences
+
+```bash
+npx hyperframes render --docker -o output.mp4
+```
+
+## System Diagnostics
+
+Run `npx hyperframes doctor` to check your environment:
+
+```bash
+npx hyperframes doctor
+```
+
+This checks for Node.js version, FFmpeg availability, Docker status, and other requirements.

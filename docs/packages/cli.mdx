@@ -1,0 +1,97 @@
+---
+title: CLI
+description: "Create, preview, and render HTML video compositions from the command line."
+---
+
+The `hyperframes` CLI is the primary way to work with Hyperframes. It handles project creation, live preview, rendering, linting, and diagnostics.
+
+```bash
+npm install -g hyperframes
+# or use directly with npx
+npx hyperframes <command>
+```
+
+## Commands
+
+### `init`
+
+Create a new composition project from a template:
+
+```bash
+npx hyperframes init --template title-card
+```
+
+See [Templates](/guides/templates) for available templates.
+
+### `dev`
+
+Start a live preview server with hot reload:
+
+```bash
+npx hyperframes dev
+```
+
+Opens your composition in the browser at `http://localhost:3000`. Edits to `index.html` are reflected instantly.
+
+### `render`
+
+Render a composition to MP4:
+
+```bash
+npx hyperframes render -o output.mp4
+npx hyperframes render --docker -o output.mp4  # deterministic mode
+```
+
+See [Rendering](/guides/rendering) for all options.
+
+### `lint`
+
+Check a composition for common issues:
+
+```bash
+npx hyperframes lint
+```
+
+Detects missing attributes, deprecated names, structural problems, and more.
+
+### `compositions`
+
+List all compositions in the current project:
+
+```bash
+npx hyperframes compositions
+```
+
+### `benchmark`
+
+Find optimal render settings for your system:
+
+```bash
+npx hyperframes benchmark
+```
+
+### `doctor`
+
+Check your environment for required dependencies:
+
+```bash
+npx hyperframes doctor
+```
+
+Verifies Node.js version, FFmpeg, Docker, and other requirements.
+
+### `info`
+
+Display system and project information:
+
+```bash
+npx hyperframes info
+```
+
+### `upgrade`
+
+Update Hyperframes to the latest version:
+
+```bash
+npx hyperframes upgrade
+```
