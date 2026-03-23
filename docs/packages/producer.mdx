@@ -1,63 +1,173 @@
 ---
 title: "@hyperframes/producer"
-description: "Full HTML-to-video rendering pipeline."
+description: "Full HTML-to-video rendering pipeline with encoding, audio mixing, and Docker support."
 ---
 
-The producer package combines the engine's capture capabilities with FFmpeg encoding to deliver a complete rendering pipeline.
+The producer package combines the [engine's](/packages/engine) frame capture with FFmpeg encoding to deliver a complete HTML-to-MP4 rendering pipeline. It handles runtime injection, readiness gates, audio mixing, and optional Docker-based deterministic rendering.
 
 ```bash
 npm install @hyperframes/producer
 ```
 
+## When to Use
+
+**Use `@hyperframes/producer` when you need to:**
+- Render compositions to MP4 programmatically from Node.js (e.g., in a backend service or CI pipeline)
+- Build a custom rendering service with fine-grained control over the pipeline
+- Run visual regression tests against golden baselines
+- Benchmark render performance across different configurations
+
+**Use a different package if you want to:**
+- Render from the command line without writing code — use the [CLI](/packages/cli) (`npx hyperframes render`)
+- Preview compositions in the browser — use the [CLI](/packages/cli) or [studio](/packages/studio)
+- Capture frames without encoding — use the [engine](/packages/engine)
+- Lint or parse composition HTML — use [core](/packages/core)
+
+<Tip>
+  If you are building a web application or script that just needs to render a video, the [CLI](/packages/cli) is the fastest path. The producer package is for when you need programmatic control inside Node.js.
+</Tip>
+
 ## What It Does
 
-The producer orchestrates the full render:
+The producer orchestrates the full render pipeline:
 
-1. **Loads** the composition HTML
-2. **Injects** the Hyperframes runtime
-3. **Waits** for readiness gates (`__playerReady`, `__renderReady`)
-4. **Captures** frames using the engine's BeginFrame pipeline
-5. **Encodes** to MP4 via FFmpeg
-6. **Mixes** audio tracks
-
-## Features
-
-- **Docker-based rendering** for deterministic output
-- **Quality presets** — draft, standard, high
-- **GPU encoding** support (NVENC, VideoToolbox, VAAPI)
-- **Parallel workers** for faster rendering
-- **Benchmark tooling** for finding optimal settings
-- **Regression harness** for visual regression testing
+<Steps>
+  <Step title="Load the composition HTML">
+    Reads your `index.html` and any referenced sub-compositions.
+  </Step>
+  <Step title="Inject the Hyperframes runtime">
+    Adds the runtime script that manages timeline seeking, clip lifecycle, and media playback.
+  </Step>
+  <Step title="Wait for readiness gates">
+    Polls for `window.__playerReady` and `window.__renderReady` to ensure all assets (fonts, images, video) are loaded before capture begins.
+  </Step>
+  <Step title="Capture frames via the engine">
+    Uses the [engine's](/packages/engine) BeginFrame pipeline to capture each frame as a pixel buffer.
+  </Step>
+  <Step title="Encode to MP4 via FFmpeg">
+    Pipes frame buffers into FFmpeg with the selected quality preset and encoding settings.
+  </Step>
+  <Step title="Mix audio tracks">
+    Extracts audio from video clips and audio elements, applies `data-volume` and `data-media-start` offsets, and mixes them into the final MP4.
+  </Step>
+</Steps>
 
 ## Programmatic Usage
 
 ```typescript
 import { render } from '@hyperframes/producer';
 
-await render({
+const result = await render({
   input: './my-video/index.html',
   output: './output.mp4',
   fps: 30,
   quality: 'standard',
 });
+
+console.log(result.duration);    // Total render time in ms
+console.log(result.frameCount);  // Number of frames captured
+console.log(result.outputPath);  // Absolute path to the output file
+```
+
+### With All Options
+
+```typescript
+await render({
+  input: './my-video/index.html',
+  output: './output.mp4',
+  fps: 30,
+  width: 1920,
+  height: 1080,
+  quality: 'high',
+  docker: true,       // Use Docker for deterministic rendering
+});
 ```
 
 ## Docker Rendering
 
-For deterministic output, the producer renders inside a Docker container with a pinned Chrome version and font set:
+For deterministic output, the producer can render inside a Docker container with a pinned Chrome version and font set. This guarantees identical output across machines — critical for CI pipelines and production services.
 
 ```bash
-# Via the CLI
+# Via the CLI (recommended)
 npx hyperframes render --docker -o output.mp4
+
+# Via the producer API
+await render({ input: './index.html', output: './out.mp4', docker: true });
+```
+
+<Info>
+  Docker mode requires Docker to be installed and running. Run `npx hyperframes doctor` to verify your environment. See [Deterministic Rendering](/concepts/determinism) for details on what makes Docker mode deterministic.
+</Info>
+
+## Quality Presets
+
+| Preset | Resolution | Encoding | Use Case |
+|--------|-----------|----------|----------|
+| `draft` | Original | Fast CRF | Quick iteration, previewing edits |
+| `standard` | Original | Balanced CRF | Production renders, sharing |
+| `high` | Original | High-quality CRF | Final delivery, archival |
+
+## GPU Encoding
+
+The producer supports hardware-accelerated encoding for faster renders:
+
+| Platform | Encoder | Flag |
+|----------|---------|------|
+| NVIDIA | NVENC | Auto-detected |
+| macOS | VideoToolbox | Auto-detected |
+| Linux | VAAPI | Auto-detected |
+
+GPU encoding is automatically used when available. To check your system's capabilities:
+
+```bash
+npx hyperframes doctor
 ```
 
 ## Regression Testing
 
-The producer includes a regression harness for comparing render output against golden baselines:
+The producer includes a regression harness for comparing render output against golden baselines. This is useful for catching visual regressions when changing the runtime, engine, or rendering pipeline.
 
 ```bash
 cd packages/producer
-pnpm docker:build:test   # Build test Docker image
-pnpm docker:test          # Run regression tests
-pnpm docker:test:update   # Regenerate golden baselines
+
+# Build the test Docker image
+pnpm docker:build:test
+
+# Run regression tests (compares output against golden baselines)
+pnpm docker:test
+
+# Regenerate golden baselines after intentional changes
+pnpm docker:test:update
 ```
+
+## Benchmarking
+
+Find optimal render settings for your hardware:
+
+```bash
+# Via the CLI
+npx hyperframes benchmark
+
+# Directly from the producer package
+cd packages/producer
+pnpm benchmark
+```
+
+The benchmark runs several compositions with different quality and FPS settings and reports timing for each combination.
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="CLI" icon="terminal" href="/packages/cli">
+    Command-line interface that wraps the producer for rendering, previewing, and more.
+  </Card>
+  <Card title="Engine" icon="gear" href="/packages/engine">
+    The low-level capture pipeline that the producer uses to grab frames.
+  </Card>
+  <Card title="Core" icon="cube" href="/packages/core">
+    Types, runtime, and linter that the producer depends on.
+  </Card>
+  <Card title="Studio" icon="palette" href="/packages/studio">
+    Visual editor for building compositions before rendering with the producer.
+  </Card>
+</CardGroup>

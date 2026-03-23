@@ -3,56 +3,97 @@ title: Introduction
 description: "Write HTML. Render video. Built for agents."
 ---
 
-Hyperframes is an open-source video rendering framework that lets you create, preview, and render HTML-based video compositions — with first-class support for AI agents.
+Hyperframes is an open-source framework that turns HTML into deterministic, frame-by-frame rendered video — so you can define a video the same way you build a web page.
 
-## Why Hyperframes?
+## See It in Action
 
-- **HTML-native** — AI agents already speak HTML. No React required.
-- **Frame Adapter pattern** — bring your own animation runtime (GSAP, Lottie, CSS, Three.js).
-- **Deterministic rendering** — same input = identical output. Built for automated pipelines.
-- **AI-first design** — not a bolted-on afterthought.
-
-## How It Works
-
-Define your video as HTML with data attributes:
+Here is a video defined entirely as HTML:
 
 ```html
-<div id="stage" data-composition-id="my-video"
+<div id="root" data-composition-id="demo"
      data-start="0" data-width="1920" data-height="1080">
+
   <video id="clip-1" data-start="0" data-duration="5"
          data-track-index="0" src="intro.mp4" muted playsinline></video>
-  <img id="overlay" data-start="2" data-duration="3"
-       data-track-index="1" src="logo.png" />
-  <audio id="bg-music" data-start="0" data-duration="9"
+
+  <h1 id="title" class="clip"
+      data-start="1" data-duration="4" data-track-index="1"
+      style="font-size: 72px; color: white;">
+    Welcome to Hyperframes
+  </h1>
+
+  <audio id="bg-music" data-start="0" data-duration="5"
          data-track-index="2" data-volume="0.5" src="music.wav"></audio>
 </div>
 ```
 
-Preview instantly in the browser. Render to MP4 locally. Let AI agents compose videos using tools they already understand.
+Run `npx hyperframes render -o demo.mp4` and this produces an MP4 with deterministic, frame-by-frame capture. Same input, identical output, every time. No timeline editor. No proprietary format. Just HTML.
+
+## Why Hyperframes?
+
+<Tabs>
+  <Tab title="For developers">
+    **You already know the stack.** Compositions are HTML files with data attributes. Animations use GSAP, Lottie, CSS, or any runtime that can seek to a given frame. There is no custom DSL, no proprietary component system, and no React requirement. If you can build a web page, you can build a video.
+  </Tab>
+  <Tab title="For AI agents">
+    **Agents already speak HTML.** Most video tools require complex APIs or drag-and-drop interfaces that agents cannot operate. Hyperframes compositions are plain HTML documents — the format LLMs are best at generating. An agent can compose, modify, and render videos using tools it already understands.
+  </Tab>
+  <Tab title="For automated pipelines">
+    **Determinism by design.** The rendering pipeline is seek-driven with no wall-clock dependencies. `frame = floor(time * fps)` — every frame is independently captured via Chrome's `beginFrame` API and encoded with FFmpeg. Same input always produces identical output, making CI testing and batch rendering reliable.
+  </Tab>
+</Tabs>
+
+<Tip>
+  Hyperframes was designed from the ground up for AI agent integration. Because compositions are plain HTML, any LLM can generate, edit, and iterate on video content without specialized tooling. Pair it with function-calling agents to build fully automated video pipelines.
+</Tip>
+
+## How It Works
+
+<Steps>
+  <Step title="Write HTML">
+    Define your video as an HTML document. Each element gets data attributes for timing (`data-start`, `data-duration`) and layout (`data-track-index`). Add animations with GSAP, Lottie, CSS transitions, or any seekable runtime via the Frame Adapter pattern.
+  </Step>
+  <Step title="Preview in the browser">
+    Run `npx hyperframes dev` to open a live preview at `localhost:3000`. Edit your HTML and see changes instantly — no build step, no compilation.
+  </Step>
+  <Step title="Render to MP4">
+    Run `npx hyperframes render -o output.mp4` to produce a final video. The engine seeks each frame in headless Chrome, captures it with `beginFrame`, and pipes the result through FFmpeg. Run locally or in Docker for fully reproducible output.
+  </Step>
+</Steps>
 
 ## Packages
 
-| Package | npm | Description |
-|---------|-----|-------------|
-| [`@hyperframes/core`](/packages/core) | `@hyperframes/core` | Types, HTML generation, runtime, linter |
-| [`@hyperframes/engine`](/packages/engine) | `@hyperframes/engine` | Seekable page-to-video capture engine |
-| [`@hyperframes/producer`](/packages/producer) | `@hyperframes/producer` | Full rendering pipeline (capture + encode) |
-| [`@hyperframes/studio`](/packages/studio) | `@hyperframes/studio` | Composition editor UI |
-| [`hyperframes`](/packages/cli) | `hyperframes` | CLI for creating, previewing, and rendering |
+<CardGroup cols={2}>
+  <Card title="@hyperframes/core" icon="cube" href="/packages/core">
+    Types, HTML parsing, runtime, and composition linter — the foundation everything else builds on.
+  </Card>
+  <Card title="@hyperframes/engine" icon="gear" href="/packages/engine">
+    Seekable page-to-video capture engine. Loads HTML in headless Chrome and captures frame-by-frame.
+  </Card>
+  <Card title="@hyperframes/producer" icon="video" href="/packages/producer">
+    Full rendering pipeline combining capture and FFmpeg encoding into a single API call.
+  </Card>
+  <Card title="@hyperframes/studio" icon="palette" href="/packages/studio">
+    Visual composition editor UI for building and previewing timelines interactively.
+  </Card>
+  <Card title="hyperframes (CLI)" icon="terminal" href="/packages/cli">
+    Command-line tool for creating, previewing, and rendering compositions.
+  </Card>
+</CardGroup>
 
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Create your first video in 60 seconds
+    Build and render your first video in 60 seconds
   </Card>
   <Card title="Compositions" icon="layer-group" href="/concepts/compositions">
-    Learn the core data model
+    Understand the HTML-based data model behind every video
   </Card>
   <Card title="GSAP Animation" icon="wand-magic-sparkles" href="/guides/gsap-animation">
-    Add animations to your videos
+    Add timeline-driven animations with GSAP
   </Card>
   <Card title="Rendering" icon="film" href="/guides/rendering">
-    Render to MP4 locally or in Docker
+    Render locally, in Docker, or in a CI pipeline
   </Card>
 </CardGroup>

@@ -1,40 +1,132 @@
 ---
 title: "@hyperframes/studio"
-description: "Composition editor UI."
+description: "Visual composition editor with live preview, timeline view, and hot reload."
 ---
 
-The studio package provides a visual editor for creating and previewing Hyperframes compositions in the browser.
+The studio package provides a browser-based visual editor for creating and previewing Hyperframes compositions. It gives you a real-time preview of your video, a visual timeline of all clips, and player controls for seeking and playback — all updating live as you edit your HTML.
 
 ```bash
 npm install @hyperframes/studio
 ```
 
-## What It Does
+## When to Use
 
-The studio is a React-based composition editor that provides:
+**Use `@hyperframes/studio` when you need to:**
+- Build a custom composition editor UI (e.g., embedded in your own web application)
+- Integrate the Hyperframes preview player into a larger product
+- Extend the editor with custom panels, toolbars, or integrations
 
-- **Live preview** — see your composition rendered in real-time
-- **Timeline view** — visual representation of clips and their timing
-- **Player controls** — play, pause, seek through your composition
-- **Hot reload** — edit HTML and see changes instantly
+**Use a different package if you want to:**
+- Preview compositions during development — use the [CLI](/packages/cli) (`npx hyperframes dev`), which launches the studio for you
+- Render compositions to MP4 — use the [CLI](/packages/cli) or [producer](/packages/producer)
+- Capture frames programmatically — use the [engine](/packages/engine)
+
+<Tip>
+  **For most development workflows, you do not need to install the studio directly.** Running `npx hyperframes dev` starts the studio automatically with hot reload. Install `@hyperframes/studio` only if you are embedding the editor into your own application.
+</Tip>
 
 ## Running the Studio
 
+### Via the CLI (recommended)
+
 ```bash
-# From the monorepo root
+npx hyperframes dev
+```
+
+This starts the studio development server, opens your composition in the browser, and watches for file changes. This is the easiest way to get a live preview.
+
+### From the monorepo
+
+```bash
+# From the root
 pnpm dev
 
-# Or directly
+# Or target the studio package directly
 pnpm --filter @hyperframes/studio dev
 ```
 
-The studio starts a development server with live preview.
+The studio starts at `http://localhost:3000` by default.
+
+## Features
+
+### Live Preview
+
+The studio renders your composition in an iframe using the Hyperframes runtime. What you see in the preview is exactly what will be captured during rendering — the same runtime code, the same seek logic, the same clip lifecycle.
+
+Changes to your HTML are picked up automatically through hot reload, so you can edit `index.html` in your editor and see the result in the browser within milliseconds.
+
+### Timeline View
+
+The timeline panel provides a visual representation of your composition's structure:
+
+- Each clip appears as a colored bar on its track
+- Bar position and width reflect `data-start` and `data-duration`
+- Tracks are stacked by `data-track-index` (higher tracks render in front)
+- Relative timing references (e.g., `data-start="intro"`) are resolved and displayed as absolute positions
+
+This makes it easy to understand the temporal structure of complex compositions with many overlapping clips.
+
+### Player Controls
+
+The studio includes a full set of playback controls:
+
+- **Play / Pause** — start and stop playback
+- **Seek** — click anywhere on the timeline to jump to that point
+- **Scrub** — drag the playhead to scrub through the composition frame by frame
+- **Frame step** — advance or rewind one frame at a time for precise positioning
+
+### Hot Reload
+
+File changes are detected and applied without restarting the server. The preview maintains its current playback position when possible, so you can tweak an animation at the 5-second mark without having to seek back to it after every save.
 
 ## Architecture
 
-The studio is a React application that:
+The studio is a React application with the following structure:
 
-1. Loads your composition HTML into an iframe
-2. Injects the Hyperframes runtime for preview playback
-3. Provides a player interface for seeking and playback control
-4. Watches for file changes and hot-reloads the preview
+1. **Iframe preview** — your composition HTML is loaded in an isolated iframe with the Hyperframes runtime injected. This ensures the preview uses the same rendering path as production.
+
+2. **Runtime bridge** — the studio communicates with the iframe via `postMessage` to control playback (play, pause, seek) and receive state updates (current time, duration, readiness).
+
+3. **Timeline component** — parses the composition using `@hyperframes/core` to extract clip timing data and renders the visual timeline panel.
+
+4. **File watcher** — a development server (Vite-based) watches your project files and triggers hot module replacement when changes are detected.
+
+## Embedding in Your Own Application
+
+If you are building a product that includes a composition editor, you can use the studio's components directly:
+
+```typescript
+import { Player, Timeline } from '@hyperframes/studio';
+
+// Embed the preview player
+<Player
+  src="./my-composition/index.html"
+  width={1920}
+  height={1080}
+  autoPlay={false}
+/>
+
+// Embed the timeline view
+<Timeline compositionHtml={htmlString} />
+```
+
+<Info>
+  The studio depends on `@hyperframes/core` for parsing and runtime injection. You do not need to install core separately — it is included as a dependency.
+</Info>
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="CLI" icon="terminal" href="/packages/cli">
+    Launches the studio via `npx hyperframes dev` — the easiest way to preview compositions.
+  </Card>
+  <Card title="Core" icon="cube" href="/packages/core">
+    Types, parsing, and runtime that the studio uses for preview and timeline rendering.
+  </Card>
+  <Card title="Producer" icon="film" href="/packages/producer">
+    Renders the compositions you build in the studio to finished MP4 files.
+  </Card>
+  <Card title="Engine" icon="gear" href="/packages/engine">
+    The capture engine that powers production rendering of your compositions.
+  </Card>
+</CardGroup>

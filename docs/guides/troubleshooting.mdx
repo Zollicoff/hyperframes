@@ -3,66 +3,145 @@ title: Troubleshooting
 description: "Solutions for common Hyperframes issues."
 ---
 
-## "No composition found"
+If your issue is about a specific coding mistake (animations not working, video cutting off early), see [Common Mistakes](/guides/common-mistakes) first. This page covers environment, tooling, and rendering issues.
 
-Your directory needs an `index.html` with a valid composition. Run `npx hyperframes init` to create one.
+<AccordionGroup>
+  <Accordion title='"No composition found"'>
+    Your directory needs an `index.html` with a valid [composition](/concepts/compositions). The root element must have a [`data-composition-id`](/concepts/data-attributes#composition-attributes) attribute.
 
-## "FFmpeg not found"
+    **Fix:** Run `npx hyperframes init` to create a composition from a [template](/guides/templates), or verify your `index.html` has the correct structure:
 
-Local rendering requires FFmpeg. Install it for your platform:
+    ```html index.html
+    <div id="root" data-composition-id="my-video"
+         data-start="0" data-width="1920" data-height="1080">
+      <!-- elements here -->
+    </div>
+    ```
+  </Accordion>
 
-<CodeGroup>
-```bash macOS
-brew install ffmpeg
-```
+  <Accordion title='"FFmpeg not found"'>
+    Local [rendering](/guides/rendering) requires FFmpeg installed on your system. Install it for your platform:
 
-```bash Ubuntu/Debian
-sudo apt install ffmpeg
-```
+    <CodeGroup>
+    ```bash macOS
+    brew install ffmpeg
+    ```
 
-```bash Windows
-# Download from https://ffmpeg.org/download.html
-# Add to your PATH
-```
-</CodeGroup>
+    ```bash Ubuntu/Debian
+    sudo apt install ffmpeg
+    ```
 
-## Lint Errors
+    ```bash Windows
+    # Download from https://ffmpeg.org/download.html
+    # Add the bin directory to your PATH
+    ```
 
-Run `npx hyperframes lint` to check for common issues:
+    ```bash Verify installation
+    ffmpeg -version
+    ```
+    </CodeGroup>
 
-- Missing `data-composition-id` on root element
-- Missing `class="clip"` on timed elements
-- Overlapping timelines or invalid data attributes
-- Unmuted video elements
-- Deprecated attribute names (`data-layer`, `data-end`)
+    After installing, run `npx hyperframes doctor` to verify the CLI can find it.
 
-## Preview Not Updating
+    <Tip>
+      If you cannot install FFmpeg, use [Docker mode](/guides/rendering) instead — it bundles FFmpeg inside the container: `npx hyperframes render --docker -o output.mp4`
+    </Tip>
+  </Accordion>
 
-Make sure you're editing the `index.html` in the project directory. The preview server watches for file changes and auto-reloads.
+  <Accordion title="Lint errors">
+    Run `npx hyperframes lint` to check for common structural issues (see [CLI: lint](/packages/cli#lint)):
 
-If changes still don't appear:
-1. Check the terminal for errors
-2. Try stopping and restarting `npx hyperframes dev`
-3. Hard-refresh the browser (Ctrl+Shift+R / Cmd+Shift+R)
+    | Error | Meaning |
+    |-------|---------|
+    | Missing `data-composition-id` | Root element needs this attribute. See [Compositions](/concepts/compositions). |
+    | Missing `class="clip"` | Timed visible elements need this class. See [Data Attributes](/concepts/data-attributes#element-visibility). |
+    | Overlapping timelines | Clips on the same [`data-track-index`](/concepts/data-attributes#timing-attributes) cannot overlap in time. |
+    | Unmuted video elements | Video elements should be `muted` unless `data-has-audio="true"` is set. |
+    | Deprecated attribute names | `data-layer` and `data-end` have been replaced. Check the [HTML Schema Reference](/reference/html-schema). |
+  </Accordion>
 
-## Render Looks Different from Preview
+  <Accordion title="Preview not updating">
+    Make sure you are editing the `index.html` in the project directory. The [preview server](/packages/cli#dev) watches for file changes and auto-reloads.
 
-Use `--docker` mode for deterministic output. Local renders may differ due to:
+    If changes still do not appear:
 
-- Font availability (different fonts on different platforms)
-- Chrome version (local Chromium vs. Docker's pinned version)
-- System-specific rendering differences
+    1. Check the terminal for errors from the dev server
+    2. Stop and restart `npx hyperframes dev`
+    3. Hard-refresh the browser: **Ctrl+Shift+R** (Windows/Linux) or **Cmd+Shift+R** (macOS)
+    4. Clear the browser cache if CSS changes are not reflected
+  </Accordion>
 
-```bash
-npx hyperframes render --docker -o output.mp4
-```
+  <Accordion title="Render looks different from preview">
+    Use `--docker` mode for [deterministic output](/concepts/determinism). Local renders may differ due to:
+
+    - **Font availability** — different fonts on different platforms cause text reflow
+    - **Chrome version** — local Chromium vs. Docker's pinned version can render slightly differently
+    - **System-specific rendering** — GPU compositing, subpixel antialiasing, etc.
+
+    ```bash Terminal
+    npx hyperframes render --docker -o output.mp4
+    ```
+
+    See [Rendering: When to Use Each Mode](/guides/rendering#when-to-use-each-mode) for guidance on choosing between local and Docker rendering.
+  </Accordion>
+
+  <Accordion title="Docker mode fails to start">
+    Verify Docker is installed and the daemon is running:
+
+    ```bash Terminal
+    docker info
+    ```
+
+    Common issues:
+    - **Docker not running:** Start Docker Desktop or the Docker daemon
+    - **Permission denied:** Add your user to the `docker` group (`sudo usermod -aG docker $USER`) and restart your shell
+    - **Image pull fails:** Check your internet connection; the first render downloads the Hyperframes Docker image
+  </Accordion>
+
+  <Accordion title="Render is slow">
+    Try these optimizations:
+
+    1. Use `--quality draft` during development for faster encoding
+    2. Run `npx hyperframes benchmark` to find the optimal worker count for your system
+    3. Use `--gpu` for hardware-accelerated encoding (local mode only)
+    4. Reduce `--fps` to 24 if 30fps is not needed
+    5. Check that your composition does not have unnecessary elements or overly complex animations
+
+    See [Rendering: Options](/guides/rendering#options) for all available flags.
+  </Accordion>
+</AccordionGroup>
 
 ## System Diagnostics
 
 Run `npx hyperframes doctor` to check your environment:
 
-```bash
+```bash Terminal
 npx hyperframes doctor
 ```
 
-This checks for Node.js version, FFmpeg availability, Docker status, and other requirements.
+This checks for Node.js version, FFmpeg availability, Docker status, and other requirements. If `doctor` reports issues, address them before rendering.
+
+## Still Stuck?
+
+If none of the above resolves your issue:
+
+1. Run `npx hyperframes info` to gather system and project details
+2. Check [GitHub Issues](https://github.com/heygen-com/hyperframes/issues) for similar reports
+3. Open a new issue with the output of `npx hyperframes info` and steps to reproduce
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Common Mistakes" icon="triangle-exclamation" href="/guides/common-mistakes">
+    Coding pitfalls that break compositions
+  </Card>
+  <Card title="Rendering" icon="film" href="/guides/rendering">
+    Rendering modes, options, and tips
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/packages/cli">
+    Full list of CLI commands
+  </Card>
+  <Card title="Contributing" icon="code-branch" href="/contributing">
+    Report bugs and contribute fixes
+  </Card>
+</CardGroup>

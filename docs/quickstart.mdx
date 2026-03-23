@@ -1,84 +1,185 @@
 ---
 title: Quickstart
-description: "Create, preview, and render your first Hyperframes video."
+description: "Create, preview, and render your first Hyperframes video in under two minutes."
 ---
 
-## Create a Project
+Go from zero to a rendered MP4 in four steps: scaffold a project, preview it live, customize the composition, and render.
 
-```bash
-npx create-hyperframe my-video
-cd my-video
-```
+## What you'll build
 
-This scaffolds a project with an `index.html` composition and assets directory.
+A 1920x1080 video with an animated title that fades in from above — rendered to MP4 on your local machine. The entire composition is a single HTML file.
 
-## Preview in Browser
+## Prerequisites
 
-```bash
-npx hyperframes dev
-```
+<Steps>
+  <Step title="Install Node.js 20+">
+    Hyperframes requires Node.js 20 or later. Check your version:
 
-Opens a live preview at `http://localhost:3000`. Edit `index.html` and the preview updates automatically.
+    ```bash
+    node --version
+    ```
 
-## Render to MP4
+    ```bash Expected output
+    v20.11.0   # or any version >= 20
+    ```
+  </Step>
 
-```bash
-npx hyperframes render -o output.mp4
-```
+  <Step title="Install FFmpeg">
+    FFmpeg is required for local video rendering (encoding captured frames into MP4).
 
-Renders your composition to an MP4 file using the local rendering pipeline (Puppeteer + FFmpeg).
+    <CodeGroup>
+    ```bash macOS
+    brew install ffmpeg
+    ```
+    ```bash Ubuntu / Debian
+    sudo apt install ffmpeg
+    ```
+    ```bash Windows
+    # Download from https://ffmpeg.org/download.html
+    # or install via winget:
+    winget install ffmpeg
+    ```
+    </CodeGroup>
 
-<Note>
-  Local rendering requires FFmpeg. Install it with `brew install ffmpeg` (macOS), `sudo apt install ffmpeg` (Ubuntu), or download from [ffmpeg.org](https://ffmpeg.org/download.html).
-</Note>
+    Verify the installation:
 
-## Project Structure
+    ```bash
+    ffmpeg -version
+    ```
 
-After `create-hyperframe`, your project looks like this:
+    ```bash Expected output
+    ffmpeg version 7.x ...
+    ```
+  </Step>
+</Steps>
 
-```
-my-video/
-├── index.html          # Root composition
-├── compositions/       # Sub-compositions (optional)
-└── assets/             # Media files (video, audio, images)
-```
+## Create your first video
 
-## Your First Composition
+<Steps>
+  <Step title="Scaffold the project">
+    ```bash
+    npx create-hyperframe my-video
+    cd my-video
+    ```
 
-Every Hyperframes video is an HTML file. Here's a minimal example:
+    ```bash Expected output
+    ✔ Created my-video/
+    ✔ index.html
+    ✔ assets/
+    Done. Run `npx hyperframes dev` to preview.
+    ```
 
-```html
-<div id="root" data-composition-id="my-video"
-     data-start="0" data-width="1920" data-height="1080">
+    This generates the following project structure:
 
-  <h1 id="title" class="clip"
-      data-start="0" data-duration="5" data-track-index="0"
-      style="font-size: 72px; color: white; text-align: center;">
-    Hello, Hyperframes!
-  </h1>
+    <Tree>
+      <Tree.Folder name="my-video" defaultOpen>
+        <Tree.File name="index.html" />
+        <Tree.Folder name="compositions" defaultOpen>
+          <Tree.File name=".gitkeep" />
+        </Tree.Folder>
+        <Tree.Folder name="assets" defaultOpen>
+          <Tree.File name=".gitkeep" />
+        </Tree.Folder>
+      </Tree.Folder>
+    </Tree>
 
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
-  <script>
-    const tl = gsap.timeline({ paused: true });
-    tl.from("#title", { opacity: 0, y: -50, duration: 1 }, 0);
-    window.__timelines = window.__timelines || {};
-    window.__timelines["my-video"] = tl;
-  </script>
-</div>
-```
+    | Path | Purpose |
+    |------|---------|
+    | `index.html` | Root composition — your video's entry point |
+    | `compositions/` | Sub-compositions loaded via `data-composition-src` |
+    | `assets/` | Media files (video, audio, images) |
+  </Step>
 
-Key rules:
-- **Root element** needs `data-composition-id`, `data-width`, and `data-height`
-- **Timed elements** need `data-start`, `data-duration`, `data-track-index`, and `class="clip"`
-- **GSAP timeline** must be paused and registered in `window.__timelines`
+  <Step title="Preview in the browser">
+    ```bash
+    npx hyperframes dev
+    ```
 
-## Requirements
+    ```bash Expected output
+    ✔ Hyperframes dev server running
+      → http://localhost:3000
+    ```
 
-- **Node.js** 20+
-- **pnpm** (recommended) or npm
-- **FFmpeg** for local rendering
-- **Docker** (optional) for deterministic rendering
+    Open [http://localhost:3000](http://localhost:3000) to see the live preview. Edits to `index.html` reload automatically.
 
-<Card title="Templates" icon="grid-2" href="/guides/templates">
-  Browse built-in templates for common video patterns
-</Card>
+    <Tip>
+      The dev server supports hot reload — save your HTML file and the preview updates instantly, no manual refresh needed.
+    </Tip>
+  </Step>
+
+  <Step title="Edit the composition">
+    Open `index.html` and replace it with this composition:
+
+    ```html index.html
+    <div id="root" data-composition-id="my-video"
+         data-start="0" data-width="1920" data-height="1080">
+
+      <!-- 1. Define a timed text clip on track 0 -->
+      <h1 id="title" class="clip"
+          data-start="0" data-duration="5" data-track-index="0"
+          style="font-size: 72px; color: white; text-align: center;
+                 position: absolute; top: 50%; left: 50%;
+                 transform: translate(-50%, -50%);">
+        Hello, Hyperframes!
+      </h1>
+
+      <!-- 2. Load GSAP for animation -->
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+
+      <!-- 3. Create a paused timeline and register it -->
+      <script>
+        const tl = gsap.timeline({ paused: true });
+        tl.from("#title", { opacity: 0, y: -50, duration: 1 }, 0);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["my-video"] = tl;
+      </script>
+    </div>
+    ```
+
+    Three rules to remember:
+
+    - **Root element** must have `data-composition-id`, `data-width`, and `data-height`
+    - **Timed elements** need `data-start`, `data-duration`, `data-track-index`, and `class="clip"`
+    - **GSAP timeline** must be created with `{ paused: true }` and registered on `window.__timelines`
+  </Step>
+
+  <Step title="Render to MP4">
+    ```bash
+    npx hyperframes render -o output.mp4
+    ```
+
+    ```bash Expected output
+    ✔ Capturing frames... 150/150
+    ✔ Encoding MP4...
+    ✔ output.mp4 (1920x1080, 5.0s, 30fps)
+    ```
+
+    Your video is now at `output.mp4`. Open it with any media player.
+  </Step>
+</Steps>
+
+## Requirements summary
+
+| Dependency | Required | Notes |
+|-----------|----------|-------|
+| **Node.js** 20+ | Yes | Runtime for CLI and dev server |
+| **pnpm** or npm | Yes | Package manager (pnpm recommended) |
+| **FFmpeg** | Yes | Video encoding for local renders |
+| **Docker** | No | Optional — for deterministic, reproducible renders |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Compositions" icon="layer-group" href="/concepts/compositions">
+    Learn how compositions, clips, and nested timelines work together
+  </Card>
+  <Card title="GSAP Animation" icon="wand-magic-sparkles" href="/guides/gsap-animation">
+    Add fade, slide, scale, and custom animations to your videos
+  </Card>
+  <Card title="Templates" icon="grid-2" href="/guides/templates">
+    Start from built-in templates like title-card and video-edit
+  </Card>
+  <Card title="Rendering" icon="film" href="/guides/rendering">
+    Explore render options: quality presets, Docker mode, and GPU encoding
+  </Card>
+</CardGroup>

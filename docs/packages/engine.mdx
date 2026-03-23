@@ -1,30 +1,54 @@
 ---
 title: "@hyperframes/engine"
-description: "Seekable page-to-video capture engine."
+description: "Seekable page-to-video capture engine using Chrome's BeginFrame API."
 ---
 
-The engine package provides the low-level video capture pipeline: loading an HTML page in headless Chrome and capturing it frame-by-frame.
+The engine package provides the low-level video capture pipeline: it loads an HTML page in headless Chrome, seeks to each frame independently, and captures pixel buffers using Chrome's `HeadlessExperimental.beginFrame` API. This is the layer that makes Hyperframes rendering deterministic.
 
 ```bash
 npm install @hyperframes/engine
 ```
 
-## What It Does
+## When to Use
 
-The engine:
+<Warning>
+  **Most users should NOT use the engine directly.** Use the [CLI](/packages/cli) (`npx hyperframes render`) or the [producer](/packages/producer) package instead — they handle runtime injection, audio mixing, and encoding for you.
+</Warning>
 
-1. Launches headless Chrome (`chrome-headless-shell`)
-2. Loads your HTML composition
-3. Uses Chrome's `HeadlessExperimental.beginFrame` API for deterministic frame capture
-4. Captures each frame as a pixel buffer
-5. Hands frames to FFmpeg for encoding
+**Use `@hyperframes/engine` when you need to:**
+- Build a custom rendering pipeline with full control over frame capture
+- Integrate Hyperframes capture into an existing video processing system
+- Capture individual frames (e.g., for thumbnails or sprite sheets) without encoding to video
+- Implement a custom encoding backend (not FFmpeg)
 
-## Key Features
+**Use a different package if you want to:**
+- Render an HTML composition to a finished MP4 — use the [producer](/packages/producer) or [CLI](/packages/cli)
+- Preview compositions in the browser — use the [CLI](/packages/cli) or [studio](/packages/studio)
+- Lint or parse composition HTML — use [core](/packages/core)
 
-- **BeginFrame rendering** — frame-perfect capture using Chrome DevTools Protocol
-- **Deterministic seek** — every frame is independently seeked, not played in realtime
-- **Configurable FPS** — 24, 30, or 60 frames per second
-- **Quality presets** — draft, standard, high encoding settings
+## How It Works
+
+The engine implements a **seek-and-capture** loop that is fundamentally different from screen recording:
+
+<Steps>
+  <Step title="Launch headless Chrome">
+    The engine starts `chrome-headless-shell`, a minimal headless Chrome binary optimized for programmatic control via the Chrome DevTools Protocol (CDP).
+  </Step>
+  <Step title="Load the composition">
+    Your HTML composition is loaded into a browser page. The Hyperframes runtime is injected to manage timeline seeking.
+  </Step>
+  <Step title="Seek to each frame">
+    For every frame in the video (e.g., 900 frames for a 30-second video at 30fps), the engine calls `renderSeek(time)` to advance the composition to the exact timestamp. No wall clock is involved — each frame is independently positioned.
+  </Step>
+  <Step title="Capture via BeginFrame">
+    Chrome's `HeadlessExperimental.beginFrame` API captures the compositor output as a pixel buffer. This produces pixel-perfect frames without any screen recording artifacts.
+  </Step>
+  <Step title="Hand off frames">
+    Captured frame buffers are passed to a consumer — typically FFmpeg (via the producer) for encoding into MP4, but you can provide your own consumer.
+  </Step>
+</Steps>
+
+This approach guarantees [deterministic rendering](/concepts/determinism): the same HTML always produces the identical video, regardless of system load or timing.
 
 ## Configuration
 
@@ -32,13 +56,95 @@ The engine:
 import type { EngineConfig } from '@hyperframes/engine';
 
 const config: EngineConfig = {
-  fps: 30,
-  width: 1920,
-  height: 1080,
-  quality: 'standard',
+  fps: 30,              // Frames per second: 24, 30, or 60
+  width: 1920,          // Output width in pixels
+  height: 1080,         // Output height in pixels
+  quality: 'standard',  // Encoding preset: 'draft', 'standard', or 'high'
 };
 ```
 
-## When to Use
+### Quality Presets
 
-Most users should use the [`@hyperframes/producer`](/packages/producer) package or the [CLI](/packages/cli) instead of the engine directly. The engine is useful when you need low-level control over the capture pipeline.
+| Preset | Use Case | Speed |
+|--------|----------|-------|
+| `draft` | Fast iteration during development | Fastest |
+| `standard` | Production renders with good quality/speed balance | Moderate |
+| `high` | Final delivery, maximum quality | Slowest |
+
+### FPS Options
+
+| FPS | Use Case |
+|-----|----------|
+| `24` | Cinematic look, smaller file size |
+| `30` | Standard web video, good balance |
+| `60` | Smooth motion, UI animations, screen recordings |
+
+## Programmatic Usage
+
+```typescript
+import { createEngine } from '@hyperframes/engine';
+
+const engine = createEngine({
+  fps: 30,
+  width: 1920,
+  height: 1080,
+});
+
+// Capture all frames from a composition
+const frames = await engine.capture('./my-video/index.html');
+
+// Each frame is a pixel buffer (PNG/raw)
+for (const frame of frames) {
+  // Process frames however you need:
+  // - pipe to FFmpeg
+  // - save as individual PNGs
+  // - generate a thumbnail
+  // - feed into a custom encoder
+}
+
+await engine.close();
+```
+
+## Key Concepts
+
+### BeginFrame Rendering
+
+Traditional screen capture records at wall-clock speed — if your system is under load, frames get dropped. The engine uses Chrome's `HeadlessExperimental.beginFrame` to explicitly advance the compositor, producing each frame on demand. This means:
+
+- **No dropped frames** — every frame is captured
+- **No timing dependency** — a 60-second video does not take 60 seconds to capture
+- **Pixel-perfect output** — the compositor produces the exact pixels it would display
+
+For more on how this enables deterministic output, see [Deterministic Rendering](/concepts/determinism).
+
+### Seek Contract
+
+The engine relies on the Hyperframes runtime's `renderSeek(time)` function. When called, `renderSeek`:
+
+1. Pauses all GSAP timelines
+2. Seeks every timeline to the exact timestamp
+3. Updates all media elements (video, audio) to match
+4. Mounts/unmounts clips based on their `data-start` and `data-duration`
+
+This contract is what makes frame-by-frame capture possible — each frame is a complete, independent snapshot of the composition at that point in time.
+
+### Chrome Requirements
+
+The engine requires `chrome-headless-shell`, which is included when you install the package. It uses a pinned Chrome version to ensure consistent rendering across environments. For fully deterministic output (including fonts), use Docker mode via the [producer](/packages/producer).
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="Producer" icon="film" href="/packages/producer">
+    Wraps the engine with runtime injection, FFmpeg encoding, and audio mixing for complete MP4 output.
+  </Card>
+  <Card title="Core" icon="cube" href="/packages/core">
+    Provides the types, runtime, and linter that the engine depends on.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/packages/cli">
+    The easiest way to render — calls the producer (and engine) under the hood.
+  </Card>
+  <Card title="Studio" icon="palette" href="/packages/studio">
+    Visual editor for building compositions before rendering them with the engine.
+  </Card>
+</CardGroup>
