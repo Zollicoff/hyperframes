@@ -23,9 +23,9 @@ The studio is embedded in the `hyperframes dev` command. To develop the studio U
 
 ```bash
 cd packages/studio
-pnpm dev        # Start Vite dev server
-pnpm build      # Build for production
-pnpm typecheck  # Type-check
+bun run dev        # Start Vite dev server
+bun run build      # Build for production
+bun run typecheck  # Type-check
 ```
 
 ## Tech stack
