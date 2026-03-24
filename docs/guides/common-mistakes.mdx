@@ -1,0 +1,172 @@
+---
+title: Common Mistakes
+description: "Pitfalls that break Hyperframes compositions."
+---
+
+These are mistakes that cannot be caught by the linter. For automated checks, run `npx hyperframes lint` (see [CLI](/packages/cli#lint)).
+
+<Warning>
+  The first two mistakes — animating video element dimensions and controlling media playback in scripts — are the most common causes of broken compositions. If your video looks wrong, check these first.
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="Animating video element dimensions">
+    **Symptom:** Video frames stop updating, or browser performance drops severely.
+
+    **Cause:** GSAP animating `width`, `height`, `top`, `left` directly on a `<video>` element can cause the browser to stop rendering frames.
+
+    **Before (broken):**
+
+    ```javascript index.html
+    // Animating the video element directly — causes frame rendering to stop
+    tl.to("#el-video", { width: 500, height: 280, top: 700, left: 1400 }, 26);
+    ```
+
+    **After (fixed):**
+
+    ```html index.html
+    <!-- Wrap the video in a div and animate the wrapper -->
+    <div id="pip-wrapper" style="position: absolute; width: 1920px; height: 1080px;">
+      <video id="el-video" data-start="0" data-track-index="0"
+             src="./assets/video.mp4" style="width: 100%; height: 100%;"></video>
+    </div>
+    ```
+
+    ```javascript index.html
+    // Animate the wrapper — the video fills it at 100%
+    tl.to("#pip-wrapper", { width: 500, height: 280, top: 700, left: 1400 }, 26);
+    ```
+
+    Use a non-timed wrapper `<div>` for visual effects like picture-in-picture. Animate the wrapper; let the video fill it via CSS.
+  </Accordion>
+
+  <Accordion title="Controlling media playback in scripts">
+    **Symptom:** Audio/video playback is out of sync, or plays when it should not.
+
+    **Cause:** Calling `video.play()`, `video.pause()`, or setting `audio.currentTime` in your scripts. The [framework owns all media playback](/reference/html-schema#framework-managed-behavior).
+
+    **Before (broken):**
+
+    ```javascript index.html
+    // Conflicts with framework media sync
+    document.getElementById("el-video").play();
+    document.getElementById("el-audio").currentTime = 5;
+    ```
+
+    **After (fixed):**
+
+    ```javascript index.html
+    // Don't control media playback at all. The framework handles it.
+    // Use GSAP for visual animations only:
+    tl.to("#el-video", { opacity: 1, duration: 0.5 }, 0);
+    ```
+
+    The framework reads [`data-start`](/concepts/data-attributes#timing-attributes), [`data-media-start`](/concepts/data-attributes#media-attributes), and [`data-volume`](/concepts/data-attributes#media-attributes) to control when and how media plays. See [Compositions: Two Layers](/concepts/compositions#two-layers-primitives-and-scripts) for the separation between HTML primitives and scripts.
+  </Accordion>
+
+  <Accordion title="Composition duration shorter than video">
+    **Symptom:** Video plays for a few seconds then stops. Timeline shows 8-10 seconds even though the video is minutes long.
+
+    **Cause:** The composition duration equals the [GSAP timeline duration](/guides/gsap-animation#timeline-duration-and-composition-duration), not `data-duration` on the video. If your last GSAP animation ends at 8 seconds, the composition is 8 seconds long — regardless of how long the video source is.
+
+    **Before (broken):**
+
+    ```javascript index.html
+    // Timeline is only 7.8s long — video cuts off after 7.8 seconds
+    tl.to("#lower-third", { left: -640, duration: 0.6 }, 7.2);
+    ```
+
+    **After (fixed):**
+
+    ```javascript index.html
+    tl.to("#lower-third", { left: -640, duration: 0.6 }, 7.2);
+
+    // Extend the timeline to 283 seconds to match the video length
+    tl.set({}, {}, 283);
+    ```
+
+    `tl.set({}, {}, TIME)` adds a zero-duration tween at the specified time, extending the timeline without affecting any elements.
+
+    <Tip>
+      A quick check: run `npx hyperframes compositions` to see the resolved duration of each composition. If it is shorter than expected, your timeline needs extending.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Missing class='clip' on timed elements">
+    **Symptom:** Elements are always visible, ignoring their `data-start` and `data-duration` timing.
+
+    **Cause:** The [`class="clip"`](/concepts/data-attributes#element-visibility) attribute tells the runtime to manage the element's visibility lifecycle. Without it, the element is always rendered.
+
+    **Before (broken):**
+
+    ```html index.html
+    <!-- Missing class="clip" — this element is always visible -->
+    <h1 id="title" data-start="2" data-duration="5" data-track-index="0">
+      Hello World
+    </h1>
+    ```
+
+    **After (fixed):**
+
+    ```html index.html
+    <!-- With class="clip", the runtime shows this only from 2s to 7s -->
+    <h1 id="title" class="clip" data-start="2" data-duration="5" data-track-index="0">
+      Hello World
+    </h1>
+    ```
+
+    <Note>
+      The linter catches this one: `npx hyperframes lint` will flag timed elements missing `class="clip"`.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Timeline key doesn't match data-composition-id">
+    **Symptom:** Animations don't play. The composition appears static.
+
+    **Cause:** The key used in `window.__timelines` must exactly match the [`data-composition-id`](/concepts/data-attributes#composition-attributes) attribute on the composition root element.
+
+    **Before (broken):**
+
+    ```javascript index.html
+    // Mismatch: HTML says "my-video", script registers "root"
+    // <div data-composition-id="my-video" ...>
+    window.__timelines["root"] = tl;
+    ```
+
+    **After (fixed):**
+
+    ```javascript index.html
+    // Key matches the data-composition-id attribute
+    // <div data-composition-id="my-video" ...>
+    window.__timelines["my-video"] = tl;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Debugging Checklist
+
+When something does not work, check in this order:
+
+1. **Run the linter:** `npx hyperframes lint` — catches most structural issues
+2. **Timeline registered?** Is `window.__timelines["<id>"]` set? Does the key match [`data-composition-id`](/concepts/data-attributes#composition-attributes)?
+3. **GSAP-only animations?** Only animate visual properties (opacity, transform, color) — see [GSAP Animation](/guides/gsap-animation#key-rules)
+4. **Timeline long enough?** Add `tl.set({}, {}, DURATION)` at the end — see [Timeline Duration](/guides/gsap-animation#timeline-duration-and-composition-duration)
+5. **Console errors?** Open browser console — runtime errors show as `[Browser:ERROR]`
+6. **Still stuck?** See [Troubleshooting](/guides/troubleshooting) for environment and rendering issues
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Fix environment and rendering issues
+  </Card>
+  <Card title="GSAP Animation" icon="wand-magic-sparkles" href="/guides/gsap-animation">
+    Review animation rules and patterns
+  </Card>
+  <Card title="HTML Schema Reference" icon="code" href="/reference/html-schema">
+    Full attribute reference and checklist
+  </Card>
+  <Card title="Data Attributes" icon="database" href="/concepts/data-attributes">
+    Timing, media, and composition attributes
+  </Card>
+</CardGroup>

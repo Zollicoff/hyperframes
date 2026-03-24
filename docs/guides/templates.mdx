@@ -1,0 +1,140 @@
+---
+title: Templates
+description: "Built-in templates for common video patterns."
+---
+
+Hyperframes includes starter templates to help you scaffold compositions quickly. Each template gives you a working project with the correct [composition structure](/concepts/compositions), [data attributes](/concepts/data-attributes), and a [GSAP timeline](/guides/gsap-animation) already wired up.
+
+## Using Templates
+
+```bash Terminal
+npx hyperframes init --template <name>
+```
+
+This creates a new project directory with an `index.html` composition and any required assets.
+
+## Available Templates
+
+<Tabs>
+  <Tab title="blank">
+    ### blank
+
+    An empty 1920x1080 composition with a GSAP timeline wired up and nothing else. Start from scratch.
+
+    **What it produces:** A black (empty) canvas at 1920x1080 resolution. No visible elements, no animations. The timeline is registered and ready for you to add tweens.
+
+    **When to use it:** You have a specific design in mind and want full control. Good for AI agent workflows that will generate the entire composition programmatically.
+
+    ```bash Terminal
+    npx hyperframes init --template blank
+    ```
+
+    **What you get:**
+    ```
+    my-video/
+    ├── index.html          # Empty root composition with GSAP setup
+    └── assets/             # Empty directory for your media files
+    ```
+  </Tab>
+  <Tab title="title-card">
+    ### title-card
+
+    Animated title and subtitle with GSAP fade-in/out transitions.
+
+    **What it produces:** A centered title and subtitle that fade in from the top, hold for a few seconds, then fade out. Clean, minimal typography on a solid background. Good for intro cards, chapter markers, or end screens.
+
+    **When to use it:** You need a simple text-based segment — an intro, outro, or interstitial card between video clips.
+
+    ```bash Terminal
+    npx hyperframes init --template title-card
+    ```
+
+    **What you get:**
+    ```
+    my-video/
+    ├── index.html          # Title + subtitle with fade animations
+    └── assets/             # Empty directory for your media files
+    ```
+  </Tab>
+  <Tab title="video-edit">
+    ### video-edit
+
+    A video element with trimming, audio, and track controls.
+
+    **What it produces:** A full-screen video clip with [`data-media-start`](/concepts/data-attributes#media-attributes) for trimming, a background audio track on a separate [timeline track](/concepts/data-attributes#timing-attributes), and a lower-third text overlay animated with GSAP. Demonstrates how multiple clip types work together.
+
+    **When to use it:** You are building a video editing workflow — cutting clips, adding overlays, mixing audio. This template shows the patterns for media-heavy compositions.
+
+    ```bash Terminal
+    npx hyperframes init --template video-edit
+    ```
+
+    **What you get:**
+    ```
+    my-video/
+    ├── index.html          # Video + audio + overlay composition
+    └── assets/             # Place your video and audio files here
+    ```
+  </Tab>
+</Tabs>
+
+## Choosing a Template
+
+| Template | Best for | Complexity |
+|----------|----------|------------|
+| `blank` | Full control, agent-generated compositions | Minimal |
+| `title-card` | Text intros, outros, chapter markers | Simple |
+| `video-edit` | Video cutting, overlays, multi-track editing | Moderate |
+
+<Tip>
+  If you are new to Hyperframes, start with `title-card` to see a working animation, then move to `blank` when you are comfortable with the [composition model](/concepts/compositions) and [GSAP animation](/guides/gsap-animation).
+</Tip>
+
+## Custom Templates
+
+Any directory with an `index.html` can serve as a template. You can copy a directory manually or build your own init workflow.
+
+Your custom template needs:
+
+1. An `index.html` with a [`data-composition-id`](/concepts/data-attributes#composition-attributes) root element
+2. A [GSAP timeline](/guides/gsap-animation) registered in `window.__timelines`
+3. Any assets in the same directory or a subdirectory
+
+```html index.html
+<div id="root" data-composition-id="my-template"
+     data-start="0" data-width="1920" data-height="1080">
+
+  <!-- Your elements here -->
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    // Add your animations...
+    window.__timelines = window.__timelines || {};
+    window.__timelines["my-template"] = tl;
+  </script>
+</div>
+```
+
+After creating a custom template, validate it with the [linter](/packages/cli#lint):
+
+```bash Terminal
+npx hyperframes lint
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Create, preview, and render your first video
+  </Card>
+  <Card title="GSAP Animation" icon="wand-magic-sparkles" href="/guides/gsap-animation">
+    Add animations to your template
+  </Card>
+  <Card title="Compositions" icon="layer-group" href="/concepts/compositions">
+    Understand the composition data model
+  </Card>
+  <Card title="Rendering" icon="film" href="/guides/rendering">
+    Render your composition to MP4
+  </Card>
+</CardGroup>

@@ -7,7 +7,27 @@ on:
       - main
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - "packages/**"
+              - "scripts/**"
+              - "Dockerfile*"
+              - "pnpm-lock.yaml"
+
   regression-shards:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -83,11 +103,15 @@ jobs:
   # Summary job — matches the required check name in branch protection
   regression:
     runs-on: ubuntu-latest
-    needs: regression-shards
+    needs: [changes, regression-shards]
     if: always()
     steps:
-      - name: Check shard results
+      - name: Check results
         run: |
+          if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
+            echo "No code changes — skipping regression (auto-pass)"
+            exit 0
+          fi
           if [ "${{ needs.regression-shards.result }}" != "success" ]; then
             echo "One or more regression shards failed"
             exit 1

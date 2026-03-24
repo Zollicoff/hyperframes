@@ -1,0 +1,266 @@
+---
+title: CLI
+description: "Create, preview, and render HTML video compositions from the command line."
+---
+
+The `hyperframes` CLI is the primary way to work with Hyperframes. It handles project creation, live preview, rendering, linting, and diagnostics — all from your terminal.
+
+```bash
+npm install -g hyperframes
+# or use directly with npx
+npx hyperframes <command>
+```
+
+## When to Use
+
+**Use the CLI when you want to:**
+- Create a new composition project from a template
+- Preview compositions with live hot reload during development
+- Render compositions to MP4 (locally or in Docker)
+- Lint compositions for structural issues
+- Check your environment for missing dependencies
+
+**Use a different package if you want to:**
+- Render programmatically from Node.js code — use the [producer](/packages/producer)
+- Build a custom frame capture pipeline — use the [engine](/packages/engine)
+- Embed a composition editor in your own web app — use the [studio](/packages/studio)
+- Parse or generate composition HTML in code — use [core](/packages/core)
+
+<Tip>
+  The CLI is the recommended starting point for all Hyperframes users. It wraps the producer, engine, and studio packages so you do not need to install them separately.
+</Tip>
+
+## Getting Started
+
+<Steps>
+  <Step title="Create a project">
+    Scaffold a new composition from a template:
+    ```bash
+    npx hyperframes init --template title-card
+    ```
+    ```
+    Creating composition in ./title-card...
+      index.html
+      assets/
+      package.json
+    Done! Run `cd title-card && npx hyperframes dev` to preview.
+    ```
+    See [Templates](/guides/templates) for all available templates.
+  </Step>
+  <Step title="Preview in browser">
+    Start the development server with live hot reload:
+    ```bash
+    cd title-card
+    npx hyperframes dev
+    ```
+    ```
+    Hyperframes Studio v0.1.0
+    Local: http://localhost:3000
+    Watching for changes...
+    ```
+    Edit `index.html` and the preview updates instantly.
+  </Step>
+  <Step title="Lint your composition">
+    Check for structural issues before rendering:
+    ```bash
+    npx hyperframes lint
+    ```
+    ```
+    Linting index.html...
+    No issues found.
+    ```
+  </Step>
+  <Step title="Render to MP4">
+    Produce the final video:
+    ```bash
+    npx hyperframes render -o output.mp4
+    ```
+    ```
+    Rendering index.html...
+    [========================================] 100% (900/900 frames)
+    Output: output.mp4 (30s, 1920x1080, 30fps)
+    ```
+    For deterministic output, add `--docker`:
+    ```bash
+    npx hyperframes render --docker -o output.mp4
+    ```
+  </Step>
+</Steps>
+
+## Commands
+
+<Tabs>
+  <Tab title="Create">
+    ### `init`
+
+    Create a new composition project from a template:
+
+    ```bash
+    npx hyperframes init --template <name>
+    ```
+
+    | Template | Description |
+    |----------|-------------|
+    | `blank` | Empty 1920x1080 composition with a GSAP timeline wired up |
+    | `title-card` | Animated title and subtitle with GSAP fade-in/out |
+    | `slideshow` | Image slideshow with crossfade transitions |
+    | `lower-third` | Broadcast-style lower-third overlay |
+
+    See [Templates](/guides/templates) for full details and previews.
+
+    ### `compositions`
+
+    List all compositions in the current project:
+
+    ```bash
+    npx hyperframes compositions
+    ```
+    ```
+    Compositions in ./my-video:
+      root          index.html           (30s, 1920x1080)
+      intro-anim    compositions/intro.html  (5s, 1920x1080)
+    ```
+  </Tab>
+  <Tab title="Develop">
+    ### `dev`
+
+    Start a live preview server with hot reload:
+
+    ```bash
+    npx hyperframes dev
+    ```
+    ```
+    Hyperframes Studio v0.1.0
+    Local: http://localhost:3000
+    Watching for changes...
+    ```
+
+    Opens your composition in the browser. Edits to `index.html` and any referenced sub-compositions are reflected instantly. The preview uses the same Hyperframes runtime as production rendering, so what you see is what you get.
+
+    ### `lint`
+
+    Check a composition for common issues:
+
+    ```bash
+    npx hyperframes lint
+    ```
+    ```
+    Linting index.html...
+
+    WARNING  unmuted-video
+      Video element 'clip-1' should have the 'muted' attribute for reliable autoplay.
+      at index.html:5
+
+    1 issue found (0 errors, 1 warning)
+    ```
+
+    The linter detects missing attributes, deprecated names, structural problems, and more. See [Common Mistakes](/guides/common-mistakes) for details on each rule.
+  </Tab>
+  <Tab title="Build">
+    ### `render`
+
+    Render a composition to MP4:
+
+    ```bash
+    # Local mode (fast iteration)
+    npx hyperframes render -o output.mp4
+
+    # Docker mode (deterministic output)
+    npx hyperframes render --docker -o output.mp4
+
+    # With options
+    npx hyperframes render -o output.mp4 --fps 60 --quality high
+    ```
+    ```
+    Rendering index.html...
+    [========================================] 100% (900/900 frames)
+    Output: output.mp4 (30s, 1920x1080, 30fps)
+    ```
+
+    See [Rendering](/guides/rendering) for all options and modes.
+
+    ### `benchmark`
+
+    Find optimal render settings for your system:
+
+    ```bash
+    npx hyperframes benchmark
+    ```
+    ```
+    Running benchmark suite...
+
+    Quality: draft    FPS: 30   Time: 4.2s   Speed: 7.1x realtime
+    Quality: standard FPS: 30   Time: 8.7s   Speed: 3.4x realtime
+    Quality: high     FPS: 30   Time: 15.1s  Speed: 2.0x realtime
+    Quality: standard FPS: 60   Time: 16.3s  Speed: 1.8x realtime
+
+    Recommended: quality=standard fps=30 (best speed/quality balance)
+    ```
+  </Tab>
+  <Tab title="Utilities">
+    ### `doctor`
+
+    Check your environment for required dependencies:
+
+    ```bash
+    npx hyperframes doctor
+    ```
+    ```
+    Checking environment...
+      Node.js  v20.11.0     OK
+      FFmpeg   6.1.1        OK
+      Docker   24.0.7       OK
+      Chrome   120.0.6099   OK (bundled)
+
+    All checks passed.
+    ```
+
+    Verifies Node.js version, FFmpeg, Docker, Chrome, and other requirements.
+
+    ### `info`
+
+    Display system and project information:
+
+    ```bash
+    npx hyperframes info
+    ```
+    ```
+    Hyperframes v0.1.0
+    Node.js    v20.11.0
+    Platform   linux x64
+    FFmpeg     6.1.1
+    Project    ./my-video (2 compositions)
+    ```
+
+    ### `upgrade`
+
+    Update Hyperframes to the latest version:
+
+    ```bash
+    npx hyperframes upgrade
+    ```
+    ```
+    Current: 0.1.0
+    Latest:  0.2.0
+    Upgrading...
+    Done! Run `npx hyperframes doctor` to verify.
+    ```
+  </Tab>
+</Tabs>
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="Producer" icon="film" href="/packages/producer">
+    The rendering pipeline the CLI calls under the hood. Use directly for programmatic rendering.
+  </Card>
+  <Card title="Studio" icon="palette" href="/packages/studio">
+    The editor UI that powers `hyperframes dev`. Use directly to embed in your own app.
+  </Card>
+  <Card title="Core" icon="cube" href="/packages/core">
+    Types, linter, and runtime. Use directly for custom tooling and integrations.
+  </Card>
+  <Card title="Engine" icon="gear" href="/packages/engine">
+    The capture engine. Use directly for custom frame capture pipelines.
+  </Card>
+</CardGroup>

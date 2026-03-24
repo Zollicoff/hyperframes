@@ -1,0 +1,80 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Hyperframes",
+  "theme": "mint",
+  "colors": {
+    "primary": "#00C4FF",
+    "light": "#00C4FF",
+    "dark": "#00A8E1"
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/compositions",
+              "concepts/data-attributes",
+              "concepts/frame-adapters",
+              "concepts/determinism"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/gsap-animation",
+              "guides/templates",
+              "guides/rendering",
+              "guides/common-mistakes",
+              "guides/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Packages",
+        "groups": [
+          {
+            "group": "Packages",
+            "pages": [
+              "packages/core",
+              "packages/engine",
+              "packages/producer",
+              "packages/studio",
+              "packages/cli"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": ["reference/html-schema"]
+          },
+          {
+            "group": "Community",
+            "pages": ["contributing"]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/heygen-com/hyperframes"
+    }
+  }
+}

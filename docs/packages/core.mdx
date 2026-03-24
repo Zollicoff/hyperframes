@@ -1,0 +1,162 @@
+---
+title: "@hyperframes/core"
+description: "Types, HTML generation, runtime, and linter — the foundation every other package depends on."
+---
+
+The core package provides the foundational types, HTML parsing/generation, runtime, and composition linter that all other Hyperframes packages build on. If you are building tooling, writing a custom integration, or extending Hyperframes itself, this is the package you need.
+
+```bash
+npm install @hyperframes/core
+```
+
+## When to Use
+
+<Tip>
+  **Most users do not need to install `@hyperframes/core` directly.** The [CLI](/packages/cli), [producer](/packages/producer), and [studio](/packages/studio) packages all depend on core internally. You only need it if you are doing one of the things listed below.
+</Tip>
+
+**Use `@hyperframes/core` when you need to:**
+- Lint compositions programmatically (CI pipelines, editor plugins)
+- Parse HTML compositions into structured TypeScript objects
+- Generate composition HTML from data (e.g., from an API or AI agent)
+- Access the Hyperframes type system for your own tooling
+- Embed the Hyperframes runtime in a custom player
+
+**Use a different package if you want to:**
+- Preview compositions in the browser — use the [CLI](/packages/cli) (`npx hyperframes dev`) or [studio](/packages/studio)
+- Render compositions to MP4 — use the [CLI](/packages/cli) (`npx hyperframes render`) or [producer](/packages/producer)
+- Capture frames from a headless browser — use the [engine](/packages/engine)
+
+## What's Inside
+
+| Module | Description |
+|--------|-------------|
+| `core.types` | TypeScript types for compositions, clips, timelines, and render config |
+| `parsers/` | HTML-to-composition parsing — turns an HTML string into a typed `Composition` object |
+| `generators/` | Composition-to-HTML generation — turns a `Composition` object back into HTML |
+| `runtime/` | The Hyperframes runtime that manages playback, seeking, and clip lifecycle |
+| `lint/` | Composition linter with rules for structural correctness |
+| `adapters/` | Frame Adapter types and the built-in GSAP adapter |
+| `templates/` | HTML composition templates used by `hyperframes init` |
+
+## Linter
+
+The composition linter checks for structural issues that would cause rendering failures or unexpected behavior. You can run it from the CLI with `npx hyperframes lint`, or call it programmatically:
+
+```typescript
+import { lintHyperframeHtml } from '@hyperframes/core';
+
+const html = `
+<div id="root" data-composition-id="root"
+     data-start="0" data-width="1920" data-height="1080">
+  <video id="clip-1" data-start="0" data-track-index="0"
+         src="intro.mp4"></video>
+</div>
+`;
+
+const issues = lintHyperframeHtml(html);
+// => [{ rule: "unmuted-video", message: "Video element 'clip-1' should have the 'muted' attribute ...", severity: "warning" }]
+```
+
+Detected issues include:
+
+- Missing timeline registration (`window.__timelines`)
+- Unmuted video elements (causes autoplay failures)
+- Missing `class="clip"` on timed visible elements
+- Deprecated attribute names
+- Missing composition dimensions (`data-width`, `data-height`)
+- Invalid `data-start` references to nonexistent clip IDs
+
+<Info>
+  For a full list of what the linter catches and how to fix each issue, see [Common Mistakes](/guides/common-mistakes) and [Troubleshooting](/guides/troubleshooting).
+</Info>
+
+## Types
+
+Import the core types for use in your own tooling or integrations:
+
+```typescript
+import type {
+  Composition,
+  Clip,
+  RenderConfig,
+  FrameAdapterContext,
+} from '@hyperframes/core';
+
+// Example: define a render configuration
+const config: RenderConfig = {
+  fps: 30,
+  width: 1920,
+  height: 1080,
+  quality: 'standard',
+};
+
+// Example: work with a parsed composition
+function getClipCount(composition: Composition): number {
+  return composition.clips.length;
+}
+```
+
+## Parsing and Generating HTML
+
+Round-trip between HTML and structured data:
+
+```typescript
+import { parseHyperframeHtml, generateHyperframeHtml } from '@hyperframes/core';
+
+// Parse HTML into a Composition object
+const composition = parseHyperframeHtml(htmlString);
+console.log(composition.id);       // "root"
+console.log(composition.width);    // 1920
+console.log(composition.clips);    // [{ id: "clip-1", start: 0, ... }, ...]
+
+// Generate HTML from a Composition object
+const html = generateHyperframeHtml(composition);
+```
+
+This is especially useful for AI agents that generate video programmatically — they can construct a `Composition` object in code and then serialize it to HTML for rendering.
+
+## Runtime Builds
+
+The runtime is the JavaScript that runs inside the browser (or headless Chrome) to manage clip lifecycle, media playback, and timeline synchronization. It is built in two formats:
+
+- **`hyperframe.runtime.iife.js`** — injected into browser iframes for preview playback
+- **`hyperframe.runtime.mjs`** — for Node.js tooling and tests
+
+Build the runtime from source:
+
+```bash
+pnpm --filter @hyperframes/core build:hyperframes-runtime
+```
+
+<Warning>
+  You should not need to build the runtime yourself unless you are developing the Hyperframes framework itself. The CLI and producer packages bundle the runtime automatically.
+</Warning>
+
+## Frame Adapters
+
+The core package defines the [Frame Adapter](/concepts/frame-adapters) interface — the abstraction that lets Hyperframes work with any animation runtime. The built-in GSAP adapter lives here:
+
+```typescript
+import type { FrameAdapterContext } from '@hyperframes/core';
+
+// Every adapter must answer: "what should the screen look like at this time?"
+// See the Frame Adapters concept page for the full API.
+```
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="CLI" icon="terminal" href="/packages/cli">
+    The easiest way to create, preview, lint, and render compositions.
+  </Card>
+  <Card title="Engine" icon="gear" href="/packages/engine">
+    Low-level frame capture pipeline that uses core types and runtime.
+  </Card>
+  <Card title="Producer" icon="film" href="/packages/producer">
+    Full rendering pipeline built on top of core and engine.
+  </Card>
+  <Card title="Studio" icon="palette" href="/packages/studio">
+    Visual composition editor that embeds the core runtime for preview.
+  </Card>
+</CardGroup>

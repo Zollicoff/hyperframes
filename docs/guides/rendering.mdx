@@ -1,0 +1,148 @@
+---
+title: Rendering
+description: "Render compositions to MP4 locally or in Docker."
+---
+
+Render your Hyperframes [compositions](/concepts/compositions) to MP4 with the [CLI](/packages/cli). The rendering pipeline is frame-by-frame and seek-driven — see [Deterministic Rendering](/concepts/determinism) for how this works under the hood.
+
+## Getting Started
+
+<Steps>
+  <Step title="Verify your environment">
+    Run the diagnostics command to check for required dependencies:
+
+    ```bash Terminal
+    npx hyperframes doctor
+    ```
+
+    Expected output:
+
+    ```
+    ✓ Node.js 20.x
+    ✓ FFmpeg found (7.x)
+    ✓ Docker available
+    ✓ Disk space OK
+    ```
+  </Step>
+  <Step title="Preview your composition">
+    Before rendering, preview your composition in the browser to verify it looks correct:
+
+    ```bash Terminal
+    npx hyperframes dev
+    ```
+  </Step>
+  <Step title="Render to MP4">
+    Run the render command from your project directory:
+
+    ```bash Terminal
+    npx hyperframes render -o output.mp4
+    ```
+
+    Expected output:
+
+    ```
+    ⠋ Rendering composition "root" (30fps, standard quality)
+    ✓ Captured 240 frames in 8.2s
+    ✓ Encoded to output.mp4 (8.0s, 1920x1080, 4.2MB)
+    ```
+  </Step>
+</Steps>
+
+## Rendering Modes
+
+<Tabs>
+  <Tab title="Local Mode">
+    ### Local Mode (default)
+
+    Uses Puppeteer (bundled Chromium) and your system's FFmpeg. Fast for iteration during development.
+
+    **Requires:** FFmpeg installed on your system. See [Troubleshooting](/guides/troubleshooting) if FFmpeg is not found.
+
+    ```bash Terminal
+    npx hyperframes render -o output.mp4
+    ```
+
+    **Pros:**
+    - Fast startup, no container overhead
+    - Uses your system GPU for hardware-accelerated encoding (with `--gpu`)
+    - Best for iterative development
+
+    **Cons:**
+    - Output may vary across platforms due to font and Chrome version differences
+    - Not suitable for CI/CD pipelines that require reproducibility
+  </Tab>
+  <Tab title="Docker Mode">
+    ### Docker Mode
+
+    [Deterministic](/concepts/determinism) output with an exact Chrome version and font set. Use this for production renders and CI pipelines.
+
+    **Requires:** Docker installed and running.
+
+    ```bash Terminal
+    npx hyperframes render --docker -o output.mp4
+    ```
+
+    **Pros:**
+    - Identical output on every platform — same Chrome, same fonts, same FFmpeg
+    - The same pipeline used in production
+    - Ideal for CI/CD and automated workflows
+
+    **Cons:**
+    - Slower startup due to container initialization
+    - No GPU acceleration inside the container
+
+    <Note>
+      Docker mode uses `chrome-headless-shell` with [BeginFrame](/concepts/determinism#how-it-works) control for frame-perfect, deterministic capture.
+    </Note>
+  </Tab>
+</Tabs>
+
+## When to Use Each Mode
+
+| Scenario | Recommended Mode |
+|----------|-----------------|
+| Local development and iteration | Local |
+| CI/CD pipeline | Docker |
+| Sharing renders with a team | Docker |
+| Quick preview export | Local |
+| AI agent-driven rendering | Docker |
+| Benchmarking performance | Local |
+
+## Options
+
+| Flag | Values | Default | Description |
+|------|--------|---------|-------------|
+| `-f, --fps` | 24, 30, 60 | 30 | Frames per second |
+| `-q, --quality` | draft, standard, high | standard | Encoding quality preset |
+| `-w, --workers` | 1-8 | auto | Parallel render workers |
+| `--gpu` | — | off | GPU encoding (NVENC, VideoToolbox, VAAPI) |
+| `-o, --output` | path | — | Output file path |
+| `--docker` | — | off | Use Docker for [deterministic rendering](/concepts/determinism) |
+
+## Tips
+
+<Tip>
+  Use `draft` quality during development for fast previews. Switch to `standard` or `high` for final output.
+</Tip>
+
+- Use `npx hyperframes benchmark` to find optimal settings for your system
+- 4 workers is usually the sweet spot for most compositions
+- Docker mode is slower but guarantees [identical output](/concepts/determinism) across platforms
+- For compositions with many frames, `--gpu` can significantly speed up local encoding
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deterministic Rendering" icon="lock" href="/concepts/determinism">
+    Understand the determinism guarantees
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/packages/cli">
+    Full list of CLI commands and flags
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Fix common rendering issues
+  </Card>
+  <Card title="Common Mistakes" icon="triangle-exclamation" href="/guides/common-mistakes">
+    Avoid pitfalls that affect render output
+  </Card>
+</CardGroup>
