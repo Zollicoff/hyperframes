@@ -3,9 +3,9 @@
   "name": "Hyperframes",
   "theme": "mint",
   "colors": {
-    "primary": "#7559FF",
-    "light": "#9F59FF",
-    "dark": "#735CE5"
+    "primary": "#00C4FF",
+    "light": "#00C4FF",
+    "dark": "#00A8E1"
   },
   "logo": {
     "light": "/logo/light.svg",
