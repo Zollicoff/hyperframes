@@ -2,9 +2,17 @@ name: regression
 
 on:
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "DOCS_GUIDELINES.md"
   push:
     branches:
       - main
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "DOCS_GUIDELINES.md"
 
 jobs:
   regression-shards:

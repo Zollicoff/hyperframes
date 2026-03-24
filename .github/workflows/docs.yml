@@ -1,0 +1,35 @@
+name: Docs
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "DOCS_GUIDELINES.md"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate build
+        working-directory: docs
+        run: npx mint validate
+
+      - name: Check broken links
+        working-directory: docs
+        run: npx mint broken-links
