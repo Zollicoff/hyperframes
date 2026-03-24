@@ -362,16 +362,24 @@ function promoteCssImportsToLinkTags(html: string): string {
  */
 function scopeCssToComposition(css: string, compositionId: string): string {
   const scope = `[data-composition-id="${compositionId}"]`;
+  // Extract @import rules first — they have no {} block and the selector
+  // regex corrupts them by treating the text after @ as a selector.
+  const importRe = /@import\s+url\([^)]*\)\s*;|@import\s+["'][^"']+["']\s*;/gi;
+  const imports: string[] = [];
+  const cssWithoutImports = css.replace(importRe, (match) => {
+    imports.push(match.trim());
+    return "";
+  });
   // Split on top-level rule boundaries. Simple regex approach:
   // scope each selector in rule blocks while preserving at-rules.
-  return css.replace(/([^{}@]+)\{/g, (match, selectors: string) => {
+  const scoped = cssWithoutImports.replace(/([^{}@]+)\{/g, (match, selectors: string) => {
     const trimmed = selectors.trim();
     // Skip @-rule headers (they don't have selectors to scope)
     if (trimmed.startsWith("@")) return match;
     // Skip if already scoped to this composition
     if (trimmed.includes(`data-composition-id="${compositionId}"`)) return match;
     // Scope each comma-separated selector
-    const scoped = trimmed
+    const scopedSelectors = trimmed
       .split(",")
       .map((s: string) => {
         const sel = s.trim();
@@ -381,8 +389,9 @@ function scopeCssToComposition(css: string, compositionId: string): string {
         return `${scope} ${sel}`;
       })
       .join(", ");
-    return `${scoped} {`;
+    return `${scopedSelectors} {`;
   });
+  return imports.length > 0 ? imports.join("\n") + "\n\n" + scoped : scoped;
 }
 
 function coalesceHeadStylesAndBodyScripts(html: string): string {
