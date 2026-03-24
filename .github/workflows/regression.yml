@@ -24,7 +24,6 @@ jobs:
               - "scripts/**"
               - "Dockerfile*"
               - "pnpm-lock.yaml"
-              - ".github/workflows/regression.yml"
 
   regression-shards:
     needs: changes

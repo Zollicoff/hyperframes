@@ -30,8 +30,6 @@ jobs:
               - "pnpm-workspace.yaml"
               - "tsconfig*.json"
               - "Dockerfile*"
-              - ".github/workflows/ci.yml"
-              - ".github/workflows/regression.yml"
 
   build:
     name: Build
