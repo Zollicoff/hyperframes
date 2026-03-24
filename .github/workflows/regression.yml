@@ -47,6 +47,8 @@ jobs:
             args: "style-13-prod style-15-prod style-16-prod"
           - shard: styles-f
             args: "style-17-prod style-18-prod"
+          - shard: styles-g
+            args: "overlay-montage-prod"
     steps:
       - name: Checkout (with LFS)
         uses: actions/checkout@v4
