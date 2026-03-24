@@ -18,17 +18,17 @@ The engine opens your HTML composition in a headless Chrome instance, seeks fram
 
 ### Key services
 
-| Service | Description |
-|---------|-------------|
-| **browserManager** | Launches and pools headless Chrome instances (`chrome-headless-shell`) |
-| **frameCapture** | Manages capture sessions — seek, screenshot, buffer lifecycle |
-| **screenshotService** | BeginFrame-based capture with CDP (Chrome DevTools Protocol) |
-| **chunkEncoder** | FFmpeg encoding with chunked concat, GPU detection, faststart |
-| **streamingEncoder** | Pipe frames to FFmpeg in real time (no intermediate PNGs on disk) |
-| **audioMixer** | Parse `<audio>` elements and mix audio tracks via FFmpeg |
-| **videoFrameExtractor** | Extract frames from `<video>` elements for compositing |
-| **parallelCoordinator** | Split frame ranges across worker processes |
-| **fileServer** | Serve local HTML files to the browser via Hono |
+| Service                 | Description                                                            |
+| ----------------------- | ---------------------------------------------------------------------- |
+| **browserManager**      | Launches and pools headless Chrome instances (`chrome-headless-shell`) |
+| **frameCapture**        | Manages capture sessions — seek, screenshot, buffer lifecycle          |
+| **screenshotService**   | BeginFrame-based capture with CDP (Chrome DevTools Protocol)           |
+| **chunkEncoder**        | FFmpeg encoding with chunked concat, GPU detection, faststart          |
+| **streamingEncoder**    | Pipe frames to FFmpeg in real time (no intermediate PNGs on disk)      |
+| **audioMixer**          | Parse `<audio>` elements and mix audio tracks via FFmpeg               |
+| **videoFrameExtractor** | Extract frames from `<video>` elements for compositing                 |
+| **parallelCoordinator** | Split frame ranges across worker processes                             |
+| **fileServer**          | Serve local HTML files to the browser via Hono                         |
 
 ## Usage
 

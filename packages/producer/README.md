@@ -47,14 +47,14 @@ await startServer({ port: 8080 });
 
 `RenderConfig` controls the render pipeline:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `inputPath` | — | Path to the HTML composition |
-| `outputPath` | — | Output video file path |
-| `width` | 1920 | Frame width in pixels |
-| `height` | 1080 | Frame height in pixels |
-| `fps` | 30 | Frames per second (24, 30, or 60) |
-| `quality` | `"standard"` | Encoder preset (`"draft"`, `"standard"`, `"high"`) |
+| Option       | Default      | Description                                        |
+| ------------ | ------------ | -------------------------------------------------- |
+| `inputPath`  | —            | Path to the HTML composition                       |
+| `outputPath` | —            | Output video file path                             |
+| `width`      | 1920         | Frame width in pixels                              |
+| `height`     | 1080         | Frame height in pixels                             |
+| `fps`        | 30           | Frames per second (24, 30, or 60)                  |
+| `quality`    | `"standard"` | Encoder preset (`"draft"`, `"standard"`, `"high"`) |
 
 ## How it works
 

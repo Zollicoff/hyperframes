@@ -55,13 +55,13 @@ Preview instantly in the browser. Render to MP4 locally. Let AI agents compose v
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`hyperframes`](packages/cli) | CLI — create, preview, lint, and render compositions |
-| [`@hyperframes/core`](packages/core) | Types, parsers, generators, linter, runtime, frame adapters |
-| [`@hyperframes/engine`](packages/engine) | Seekable page-to-video capture engine (Puppeteer + FFmpeg) |
-| [`@hyperframes/producer`](packages/producer) | Full rendering pipeline (capture + encode + audio mix) |
-| [`@hyperframes/studio`](packages/studio) | Browser-based composition editor UI |
+| Package                                      | Description                                                 |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| [`hyperframes`](packages/cli)                | CLI — create, preview, lint, and render compositions        |
+| [`@hyperframes/core`](packages/core)         | Types, parsers, generators, linter, runtime, frame adapters |
+| [`@hyperframes/engine`](packages/engine)     | Seekable page-to-video capture engine (Puppeteer + FFmpeg)  |
+| [`@hyperframes/producer`](packages/producer) | Full rendering pipeline (capture + encode + audio mix)      |
+| [`@hyperframes/studio`](packages/studio)     | Browser-based composition editor UI                         |
 
 ## Documentation
 

@@ -12,15 +12,15 @@ npm install @hyperframes/core
 
 ## What's inside
 
-| Module | Description |
-|--------|-------------|
-| **Types** | `TimelineElement`, `CompositionSpec`, `Asset`, canvas dimensions, defaults |
-| **Parsers** | `parseHtml` — extract timeline elements from HTML; `parseGsapScript` — parse GSAP animations |
-| **Generators** | `generateHyperframesHtml` — produce valid Hyperframes HTML from a composition spec |
-| **Compiler** | `compileTimingAttrs` — resolve `data-start` / `data-duration` into absolute times |
-| **Linter** | `lintHyperframeHtml` — validate Hyperframes HTML (missing attributes, overlapping tracks, etc.) |
-| **Runtime** | IIFE script injected into the browser — manages seek, media playback, and the `window.__hf` protocol |
-| **Frame Adapters** | Pluggable animation drivers (GSAP, Lottie, CSS, or custom) |
+| Module             | Description                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------- |
+| **Types**          | `TimelineElement`, `CompositionSpec`, `Asset`, canvas dimensions, defaults                           |
+| **Parsers**        | `parseHtml` — extract timeline elements from HTML; `parseGsapScript` — parse GSAP animations         |
+| **Generators**     | `generateHyperframesHtml` — produce valid Hyperframes HTML from a composition spec                   |
+| **Compiler**       | `compileTimingAttrs` — resolve `data-start` / `data-duration` into absolute times                    |
+| **Linter**         | `lintHyperframeHtml` — validate Hyperframes HTML (missing attributes, overlapping tracks, etc.)      |
+| **Runtime**        | IIFE script injected into the browser — manages seek, media playback, and the `window.__hf` protocol |
+| **Frame Adapters** | Pluggable animation drivers (GSAP, Lottie, CSS, or custom)                                           |
 
 ## Frame Adapters
 
@@ -43,7 +43,9 @@ import type { FrameAdapter } from "@hyperframes/core";
 const myAdapter: FrameAdapter = {
   id: "my-adapter",
   getDurationFrames: () => 300,
-  seekFrame: (frame) => { /* seek your animation */ },
+  seekFrame: (frame) => {
+    /* seek your animation */
+  },
 };
 ```
 
