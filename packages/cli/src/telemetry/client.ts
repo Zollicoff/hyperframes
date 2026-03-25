@@ -5,7 +5,7 @@ import { isDevMode } from "../utils/env.js";
 
 // This is a public project API key — safe to embed in client-side code.
 // It only allows writing events, not reading data.
-const POSTHOG_API_KEY = "__POSTHOG_API_KEY__";
+const POSTHOG_API_KEY = "phc_zjjbX0PnWxERXrMHhkEJWj9A9BhGVLRReICgsfTMmpx";
 const POSTHOG_HOST = "https://us.i.posthog.com";
 const FLUSH_TIMEOUT_MS = 5_000;
 
