@@ -91,7 +91,7 @@ export async function flush(): Promise<void> {
   const config = readConfig();
   const batch = eventQueue.map((e) => ({
     event: e.event,
-    properties: e.properties,
+    properties: { ...e.properties, $ip: null },
     distinct_id: config.anonymousId,
     timestamp: e.timestamp,
   }));
@@ -127,7 +127,7 @@ export function flushSync(): void {
   const config = readConfig();
   const batch = eventQueue.map((e) => ({
     event: e.event,
-    properties: e.properties,
+    properties: { ...e.properties, $ip: null },
     distinct_id: config.anonymousId,
     timestamp: e.timestamp,
   }));
