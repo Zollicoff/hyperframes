@@ -49,7 +49,7 @@ export function shouldTrack(): boolean {
     return false;
   }
 
-  // Placeholder API key means it hasn't been configured yet
+  // Safety check: ensure the API key has been configured (phc_ prefix = valid PostHog key)
   if (!POSTHOG_API_KEY.startsWith("phc_")) {
     telemetryEnabled = false;
     return false;
@@ -91,6 +91,8 @@ export async function flush(): Promise<void> {
   const config = readConfig();
   const batch = eventQueue.map((e) => ({
     event: e.event,
+    // $ip: null tells PostHog to not record the request IP for this event.
+    // Server-side "Discard client IP data" is also enabled in project settings.
     properties: { ...e.properties, $ip: null },
     distinct_id: config.anonymousId,
     timestamp: e.timestamp,
@@ -115,9 +117,9 @@ export async function flush(): Promise<void> {
 }
 
 /**
- * Synchronous flush for use in the `exit` event handler (which doesn't support async).
- * Uses a synchronous XMLHttpRequest-style approach via child_process to ensure
- * events are sent even when process.exit() is called.
+ * Fire-and-forget flush for use in the `exit` event handler.
+ * Spawns a detached child process that sends the HTTP request independently,
+ * so the parent process exits immediately without waiting.
  */
 export function flushSync(): void {
   if (eventQueue.length === 0) {
@@ -136,17 +138,17 @@ export function flushSync(): void {
   const payload = JSON.stringify({ api_key: POSTHOG_API_KEY, batch });
 
   try {
-    // Spawn a detached process to send the request so we don't block exit.
-    // The subprocess inherits nothing and runs independently.
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    execFileSync(
+    const { spawn } = require("node:child_process") as typeof import("node:child_process");
+    const child = spawn(
       process.execPath,
       [
         "-e",
         `fetch(${JSON.stringify(`${POSTHOG_HOST}/batch/`)},{method:"POST",headers:{"Content-Type":"application/json"},body:${JSON.stringify(payload)},signal:AbortSignal.timeout(${FLUSH_TIMEOUT_MS})}).catch(()=>{})`,
       ],
-      { stdio: "ignore", timeout: FLUSH_TIMEOUT_MS },
+      { detached: true, stdio: "ignore" },
     );
+    // Let the parent exit without waiting for the child
+    child.unref();
   } catch {
     // Silently ignore
   }
@@ -154,13 +156,19 @@ export function flushSync(): void {
 
 /**
  * Show the first-run telemetry notice if it hasn't been shown yet.
- * Returns true if the notice was shown (so callers can add spacing).
+ * Must be called BEFORE any tracking calls so the user sees the disclosure
+ * before any data is sent.
  */
 export function showTelemetryNotice(): boolean {
   if (!shouldTrack()) return false;
 
   const config = readConfig();
   if (config.telemetryNoticeShown) return false;
+
+  // Persist the notice flag first, before any tracking occurs,
+  // so the user is never tracked without having seen the disclosure.
+  config.telemetryNoticeShown = true;
+  writeConfig(config);
 
   console.log();
   console.log(`  ${c.dim("Hyperframes collects anonymous usage data to improve the tool.")}`);
@@ -169,7 +177,5 @@ export function showTelemetryNotice(): boolean {
   console.log(`  ${c.dim("Disable anytime:")} ${c.accent("hyperframes telemetry disable")}`);
   console.log();
 
-  config.telemetryNoticeShown = true;
-  writeConfig(config);
   return true;
 }

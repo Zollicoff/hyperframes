@@ -500,8 +500,8 @@ export default defineCommand({
     const templateId: TemplateId = templateResult;
 
     // 4. Copy template and patch
-    trackInitTemplate(templateId);
     scaffoldProject(destDir, name, templateId, localVideoName);
+    trackInitTemplate(templateId);
 
     const files = readdirSync(destDir);
     clack.note(files.map((f) => c.accent(f)).join("\n"), c.success(`Created ${name}/`));
