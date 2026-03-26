@@ -54,33 +54,92 @@ The producer orchestrates the full render pipeline:
 
 ## Programmatic Usage
 
-```typescript
-import { render } from '@hyperframes/producer';
+The producer uses a two-step API: create a render job configuration, then execute it.
 
-const result = await render({
+```typescript
+import { createRenderJob, executeRenderJob } from '@hyperframes/producer';
+
+const job = createRenderJob({
   input: './my-video/index.html',
   output: './output.mp4',
   fps: 30,
   quality: 'standard',
 });
 
-console.log(result.duration);    // Total render time in ms
-console.log(result.frameCount);  // Number of frames captured
-console.log(result.outputPath);  // Absolute path to the output file
+const result = await executeRenderJob(job);
 ```
 
-### With All Options
+### Render Configuration
 
 ```typescript
-await render({
-  input: './my-video/index.html',
-  output: './output.mp4',
-  fps: 30,
-  width: 1920,
-  height: 1080,
-  quality: 'high',
-  docker: true,       // Use Docker for deterministic rendering
-});
+import type { RenderConfig } from '@hyperframes/producer';
+
+const config: RenderConfig = {
+  fps: 30,                   // 24, 30, or 60
+  quality: 'standard',       // 'draft', 'standard', or 'high'
+  workers: 4,                // Parallel render workers (1-8)
+  useGpu: false,             // GPU-accelerated encoding
+  debug: false,              // Debug logging
+};
+```
+
+### Progress Callbacks
+
+```typescript
+import type { ProgressCallback, RenderStatus } from '@hyperframes/producer';
+
+const onProgress: ProgressCallback = (status: RenderStatus) => {
+  console.log(`Status: ${status}`);
+  // Statuses: "queued" | "preprocessing" | "rendering" | "encoding"
+  //           | "assembling" | "complete" | "failed" | "cancelled"
+};
+```
+
+### Cancellation
+
+```typescript
+import { RenderCancelledError } from '@hyperframes/producer';
+
+try {
+  await executeRenderJob(job);
+} catch (err) {
+  if (err instanceof RenderCancelledError) {
+    console.log(`Cancelled: ${err.reason}`);
+    // reason: "user_cancelled" | "timeout" | "aborted"
+  }
+}
+```
+
+## HTTP Server
+
+The producer includes a built-in HTTP server for running as a rendering service:
+
+```typescript
+import { startServer } from '@hyperframes/producer/server';
+
+await startServer({ port: 8080 });
+```
+
+### Server Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/render` | Blocking render — returns JSON result |
+| `POST` | `/render/stream` | Streaming render with Server-Sent Events |
+| `POST` | `/lint` | Lint a composition for issues |
+| `GET` | `/health` | Health check |
+| `GET` | `/outputs/:token` | Download a rendered MP4 |
+
+For custom server integration, use the lower-level handlers:
+
+```typescript
+import { createRenderHandlers, createProducerApp } from '@hyperframes/producer/server';
+
+// Get individual request handlers
+const handlers = createRenderHandlers(options);
+
+// Or get a full Hono app
+const app = createProducerApp(options);
 ```
 
 ## Docker Rendering
@@ -89,10 +148,7 @@ For deterministic output, the producer can render inside a Docker container with
 
 ```bash
 # Via the CLI (recommended)
-npx hyperframes render --docker -o output.mp4
-
-# Via the producer API
-await render({ input: './index.html', output: './out.mp4', docker: true });
+npx hyperframes render --docker --output output.mp4
 ```
 
 <Info>
@@ -122,6 +178,26 @@ GPU encoding is automatically used when available. To check your system's capabi
 ```bash
 npx hyperframes doctor
 ```
+
+## Additional Exports
+
+The producer also re-exports key engine functionality for convenience:
+
+| Export | Description |
+|--------|-------------|
+| `createCaptureSession()` | Create a frame capture session |
+| `initializeSession()` | Initialize session with a composition |
+| `captureFrame()` / `captureFrameToBuffer()` | Capture individual frames |
+| `closeCaptureSession()` | Clean up a capture session |
+| `getCompositionDuration()` | Get total composition duration |
+| `getCapturePerfSummary()` | Get capture performance metrics |
+| `createFileServer()` | Create an HTTP file server for serving assets |
+| `createVideoFrameInjector()` | Create a video frame injector for page |
+| `resolveConfig()` / `DEFAULT_CONFIG` | Producer configuration |
+| `createConsoleLogger()` / `defaultLogger` | Logging utilities |
+| `quantizeTimeToFrame()` | Convert time to frame boundary |
+| `resolveRenderPaths()` | Resolve render directory paths |
+| `prepareHyperframeLintBody()` / `runHyperframeLint()` | Linting utilities |
 
 ## Regression Testing
 
