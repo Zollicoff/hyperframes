@@ -35,7 +35,6 @@ const __dirname = __hf_dirname(__filename);`,
   noExternal: [
     "@hyperframes/core",
     "@hyperframes/producer",
-    "@hyperframes/studio-backend",
     "@hyperframes/engine",
     "@clack/prompts",
     "@clack/core",
