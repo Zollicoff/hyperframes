@@ -27,43 +27,75 @@ jobs:
       - run: bun run build
       - run: bun run verify:packed-manifests
 
-      - name: Publish @hyperframes/core
-        continue-on-error: true
-        run: pnpm --filter @hyperframes/core publish --access public --no-git-checks
+      - name: Publish packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          FAILED=0
 
-      - name: Publish @hyperframes/engine
-        continue-on-error: true
-        run: pnpm --filter @hyperframes/engine publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          publish_pkg() {
+            local filter="$1"
+            local name="$2"
 
-      - name: Publish @hyperframes/producer
-        continue-on-error: true
-        run: pnpm --filter @hyperframes/producer publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+            # Check if this version is already published
+            if npm view "${name}@${VERSION}" version >/dev/null 2>&1; then
+              echo "⏭️  ${name}@${VERSION} already published — skipping"
+              return 0
+            fi
 
-      - name: Publish @hyperframes/studio
-        continue-on-error: true
-        run: pnpm --filter @hyperframes/studio publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+            echo "📦 Publishing ${name}@${VERSION}..."
+            if pnpm --filter "$filter" publish --access public --no-git-checks; then
+              echo "✅ ${name}@${VERSION} published"
+            else
+              echo "❌ ${name}@${VERSION} failed to publish"
+              FAILED=1
+            fi
+          }
 
-      - name: Publish hyperframes (CLI)
-        continue-on-error: true
-        run: pnpm --filter @hyperframes/cli publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          publish_pkg "@hyperframes/core" "@hyperframes/core"
+          publish_pkg "@hyperframes/engine" "@hyperframes/engine"
+          publish_pkg "@hyperframes/producer" "@hyperframes/producer"
+          publish_pkg "@hyperframes/studio" "@hyperframes/studio"
+
+          # CLI is @hyperframes/cli in the monorepo but published as unscoped "hyperframes" on npm.
+          # Rewrite the name in package.json before publishing, then use npm publish directly
+          # since pnpm --filter won't match the rewritten name.
+          if npm view "hyperframes@${VERSION}" version >/dev/null 2>&1; then
+            echo "⏭️  hyperframes@${VERSION} already published — skipping"
+          else
+            node -e "
+              const fs = require('fs');
+              const p = 'packages/cli/package.json';
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+              pkg.name = 'hyperframes';
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            "
+            echo "📦 Publishing hyperframes@${VERSION}..."
+            if (cd packages/cli && npm publish --access public); then
+              echo "✅ hyperframes@${VERSION} published"
+            else
+              echo "❌ hyperframes@${VERSION} failed to publish"
+              FAILED=1
+            fi
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::One or more packages failed to publish"
+            exit 1
+          fi
 
       - name: Create GitHub Release
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          gh release create "v${VERSION}" \
-            --repo "${{ github.repository }}" \
-            --title "v${VERSION}" \
-            --generate-notes
+          # Skip if release already exists (idempotent re-runs)
+          if gh release view "v${VERSION}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release v${VERSION} already exists — skipping"
+          else
+            gh release create "v${VERSION}" \
+              --repo "${{ github.repository }}" \
+              --title "v${VERSION}" \
+              --generate-notes
+          fi
