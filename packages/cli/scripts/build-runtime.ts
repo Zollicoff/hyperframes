@@ -1,16 +1,19 @@
-import { loadHyperframeRuntimeSource } from "@hyperframes/core";
-import { copyFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const coreDistDir = resolve(__dirname, "../../core/dist");
 
-// Write runtime source (keep legacy name for backward compat)
-const runtimeSource = loadHyperframeRuntimeSource();
-writeFileSync("dist/hyperframe-runtime.js", runtimeSource);
+// Read the pre-built manifest to find the IIFE artifact name
+const manifest = JSON.parse(readFileSync(resolve(coreDistDir, "hyperframe.manifest.json"), "utf8"));
+const iifeFileName = manifest.artifacts?.iife ?? "hyperframe.runtime.iife.js";
 
-// Copy manifest + runtime with canonical names so hyperframeRuntimeLoader's
-// sibling-path resolution works in the bundled CLI (installed via npx).
+// Copy the pre-built artifacts from core/dist — these have matching SHA256
+// checksums. Do NOT regenerate via loadHyperframeRuntimeSource() as that
+// produces output without the trailing newline, causing a checksum mismatch.
 copyFileSync(resolve(coreDistDir, "hyperframe.manifest.json"), "dist/hyperframe.manifest.json");
-writeFileSync("dist/hyperframe.runtime.iife.js", runtimeSource);
+copyFileSync(resolve(coreDistDir, iifeFileName), `dist/${iifeFileName}`);
+
+// Keep legacy name for backward compat (e.g. studio dev server)
+copyFileSync(resolve(coreDistDir, iifeFileName), "dist/hyperframe-runtime.js");
