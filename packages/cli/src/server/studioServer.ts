@@ -117,7 +117,7 @@ function buildSubCompositionHtml(
 
   // Extract content from <template> if present
   const templateMatch = rawComp.match(/<template>([\s\S]*)<\/template>/i);
-  let content = templateMatch ? templateMatch[1] : rawComp;
+  let content = (templateMatch ? templateMatch[1] : rawComp) ?? rawComp;
 
   // Inline nested data-composition-src references
   content = content.replace(
@@ -127,7 +127,7 @@ function buildSubCompositionHtml(
       if (!existsSync(nestedFile)) return before + srcAttr + after;
       const nestedRaw = readFileSync(nestedFile, "utf-8");
       const nestedTemplate = nestedRaw.match(/<template>([\s\S]*)<\/template>/i);
-      const nestedContent = nestedTemplate ? nestedTemplate[1] : nestedRaw;
+      const nestedContent = (nestedTemplate ? nestedTemplate[1] : nestedRaw) ?? nestedRaw;
       const styles: string[] = [];
       const scripts: string[] = [];
       let body = nestedContent
@@ -276,7 +276,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
     const id = c.req.param("id");
     if (id !== projectId) return c.json({ error: "not found" }, 404);
     const subPath = decodeURIComponent(
-      c.req.path.replace(`/api/projects/${id}/preview/`, "").split("?")[0],
+      c.req.path.replace(`/api/projects/${id}/preview/`, "").split("?")[0] ?? "",
     );
     const file = resolve(projectDir, subPath);
     if (!isSafePath(projectDir, file) || !existsSync(file) || !statSync(file).isFile()) {
