@@ -1,5 +1,10 @@
 <template id="captions-template">
-  <div data-composition-id="captions" data-width="1920" data-height="1080" data-duration="18">
+  <div
+    data-composition-id="captions"
+    data-width="1920"
+    data-height="1080"
+    data-duration="__VIDEO_DURATION__"
+  >
     <div class="captions-container">
       <div id="caption-box" class="caption-box">
         <span id="caption-text" class="caption-text"></span>
@@ -134,6 +139,7 @@
           );
         });
 
+        window.__timelines = window.__timelines || {};
         window.__timelines["captions"] = tl;
       })();
     </script>

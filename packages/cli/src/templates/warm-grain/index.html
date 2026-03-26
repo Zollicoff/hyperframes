@@ -104,7 +104,8 @@
       data-composition-id="main-video"
       data-width="1920"
       data-height="1080"
-      data-duration="17"
+      data-start="0"
+      data-duration="__VIDEO_DURATION__"
     >
       <!-- Background Layer -->
       <div
@@ -112,24 +113,36 @@
         data-composition-id="grain-overlay"
         data-width="1920"
         data-height="1080"
-        data-duration="17"
+        data-start="0"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="100"
       >
         <div class="grain-texture"></div>
         <script>
           const grainTl = gsap.timeline({ paused: true });
+          window.__timelines = window.__timelines || {};
           window.__timelines["grain-overlay"] = grainTl;
         </script>
       </div>
 
-      <!-- A-Roll Video -->
+      <!-- A-Roll Video (muted — audio is separate) -->
       <video
         id="a-roll"
         src="__VIDEO_SRC__"
+        muted
+        playsinline
         data-start="0"
-        data-duration="17"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="0"
       ></video>
+      <audio
+        id="a-roll-audio"
+        src="__VIDEO_SRC__"
+        data-start="0"
+        data-duration="__VIDEO_DURATION__"
+        data-track-index="5"
+        data-volume="1"
+      ></audio>
 
       <!-- Compositions -->
       <div
@@ -148,7 +161,7 @@
         data-composition-id="graphics"
         data-composition-src="compositions/graphics.html"
         data-start="0"
-        data-duration="17"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="2"
       ></div>
 
@@ -158,7 +171,7 @@
         data-composition-id="captions"
         data-composition-src="compositions/captions.html"
         data-start="0"
-        data-duration="17"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="3"
       ></div>
 

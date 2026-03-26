@@ -54,6 +54,19 @@ function devProjectApi(): Plugin {
           return;
         }
 
+        // GET /api/runtime.js — serve the HyperFrames runtime
+        if (req.method === "GET" && req.url === "/api/runtime.js") {
+          const cliRuntime = resolve(__dirname, "..", "cli", "dist", "hyperframe-runtime.js");
+          if (existsSync(cliRuntime)) {
+            res.writeHead(200, { "Content-Type": "text/javascript", "Cache-Control": "no-store" });
+            res.end(readFileSync(cliRuntime, "utf-8"));
+          } else {
+            res.writeHead(404);
+            res.end("runtime not built");
+          }
+          return;
+        }
+
         // GET /api/projects — list all projects with session metadata
         if (req.method === "GET" && (req.url === "/api/projects" || req.url === "/api/projects/")) {
           // Build session → project mapping for titles
@@ -162,9 +175,24 @@ function devProjectApi(): Plugin {
         if (req.method === "GET" && rest === "/preview") {
           try {
             const bundler = await getBundler();
-            const bundled = bundler
+            let bundled = bundler
               ? await bundler(projectDir)
               : readFileSync(join(projectDir, "index.html"), "utf-8");
+            // Inject <base> so relative asset paths resolve through /preview/ route
+            const baseTag = `<base href="/api/projects/${projectId}/preview/">`;
+            if (bundled.includes("<head>")) {
+              bundled = bundled.replace("<head>", `<head>${baseTag}`);
+            } else {
+              bundled = baseTag + bundled;
+            }
+            // Inject runtime if available and not already set
+            const cliRuntime = resolve(__dirname, "..", "cli", "dist", "hyperframe-runtime.js");
+            if (existsSync(cliRuntime) && bundled.includes('src=""')) {
+              bundled = bundled.replace(
+                'data-hyperframes-preview-runtime="1" src=""',
+                'data-hyperframes-preview-runtime="1" src="/api/runtime.js"',
+              );
+            }
             res.writeHead(200, {
               "Content-Type": "text/html; charset=utf-8",
               "Cache-Control": "no-store",
@@ -245,7 +273,15 @@ function devProjectApi(): Plugin {
           );
 
           // Build a standalone HTML page with GSAP + runtime
-          const runtimeUrl = (process.env.HYPERFRAME_RUNTIME_URL || "").trim() || "";
+          // Resolve runtime: env var → built CLI dist → empty (no runtime)
+          let runtimeUrl = (process.env.HYPERFRAME_RUNTIME_URL || "").trim();
+          if (!runtimeUrl) {
+            // In dev: serve the built runtime from the CLI dist
+            const cliRuntime = resolve(__dirname, "..", "cli", "dist", "hyperframe-runtime.js");
+            if (existsSync(cliRuntime)) {
+              runtimeUrl = `/api/runtime.js`;
+            }
+          }
           const standalone = `<!DOCTYPE html>
 <html>
 <head>
@@ -274,13 +310,29 @@ ${content}
             return;
           }
           const isText = /\.(html|css|js|json|svg|txt)$/i.test(subPath);
-          const contentType = subPath.endsWith(".html")
-            ? "text/html"
-            : subPath.endsWith(".js")
-              ? "text/javascript"
-              : subPath.endsWith(".css")
-                ? "text/css"
-                : "application/octet-stream";
+          const mimeTypes: Record<string, string> = {
+            ".html": "text/html",
+            ".js": "text/javascript",
+            ".css": "text/css",
+            ".json": "application/json",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+            ".mp4": "video/mp4",
+            ".webm": "video/webm",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".m4a": "audio/mp4",
+            ".ogg": "audio/ogg",
+            ".woff2": "font/woff2",
+            ".woff": "font/woff",
+            ".ttf": "font/ttf",
+          };
+          const ext = "." + subPath.split(".").pop()?.toLowerCase();
+          const contentType = mimeTypes[ext] ?? "application/octet-stream";
           res.writeHead(200, { "Content-Type": contentType });
           res.end(readFileSync(file, isText ? "utf-8" : undefined));
           return;

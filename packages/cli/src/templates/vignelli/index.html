@@ -105,18 +105,29 @@
       data-composition-id="main-comp"
       data-width="1080"
       data-height="1920"
-      data-duration="13.88"
+      data-start="0"
+      data-duration="__VIDEO_DURATION__"
     >
       <!-- A-Roll -->
       <div id="a-roll-wrapper">
         <video
           id="a-roll"
           src="__VIDEO_SRC__"
+          muted
+          playsinline
           data-start="0"
-          data-duration="13.88"
+          data-duration="__VIDEO_DURATION__"
           data-track-index="0"
         ></video>
       </div>
+      <audio
+        id="a-roll-audio"
+        src="__VIDEO_SRC__"
+        data-start="0"
+        data-duration="__VIDEO_DURATION__"
+        data-track-index="5"
+        data-volume="1"
+      ></audio>
 
       <!-- Transitions -->
       <div id="curtain-black" class="curtain"></div>
@@ -128,7 +139,7 @@
         data-composition-id="overlays"
         data-composition-src="compositions/overlays.html"
         data-start="0"
-        data-duration="13.88"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="2"
       ></div>
 
@@ -138,7 +149,7 @@
         data-composition-id="captions"
         data-composition-src="compositions/captions.html"
         data-start="0"
-        data-duration="13.88"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="3"
       ></div>
 
@@ -171,6 +182,7 @@
         tl.to("#a-roll-wrapper", { opacity: 1, duration: 0 }, 7.3);
         tl.to("#curtain-red", { left: "100%", duration: 0.4, ease: "power2.inOut" }, 7.3);
 
+        window.__timelines = window.__timelines || {};
         window.__timelines["main-comp"] = tl;
       </script>
     </div>

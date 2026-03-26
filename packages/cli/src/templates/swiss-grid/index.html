@@ -81,7 +81,8 @@
       data-composition-id="master"
       data-width="1920"
       data-height="1080"
-      data-duration="16.04"
+      data-start="0"
+      data-duration="__VIDEO_DURATION__"
     >
       <!-- Background Grid -->
       <img
@@ -90,7 +91,7 @@
         src="assets/swiss-grid.svg"
         alt="Grid"
         data-start="0"
-        data-duration="16.04"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="0"
       />
 
@@ -99,11 +100,21 @@
         <video
           id="short_mag_cut"
           src="__VIDEO_SRC__"
+          muted
+          playsinline
           data-start="0"
-          data-duration="16.04"
+          data-duration="__VIDEO_DURATION__"
           data-track-index="1"
         ></video>
       </div>
+      <audio
+        id="a-roll-audio"
+        src="__VIDEO_SRC__"
+        data-start="0"
+        data-duration="__VIDEO_DURATION__"
+        data-track-index="5"
+        data-volume="1"
+      ></audio>
 
       <!-- Intro Sub-composition -->
       <div
@@ -123,7 +134,7 @@
         data-composition-id="graphics"
         data-composition-src="compositions/graphics.html"
         data-start="0"
-        data-duration="16.04"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="3"
       ></div>
 
@@ -134,7 +145,7 @@
         data-composition-id="captions"
         data-composition-src="compositions/captions.html"
         data-start="0"
-        data-duration="16.04"
+        data-duration="__VIDEO_DURATION__"
         data-track-index="4"
       ></div>
 
