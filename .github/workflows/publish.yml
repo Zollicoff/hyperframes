@@ -57,7 +57,28 @@ jobs:
           publish_pkg "@hyperframes/engine" "@hyperframes/engine"
           publish_pkg "@hyperframes/producer" "@hyperframes/producer"
           publish_pkg "@hyperframes/studio" "@hyperframes/studio"
-          publish_pkg "hyperframes" "hyperframes"
+
+          # CLI is @hyperframes/cli in the monorepo but published as unscoped "hyperframes" on npm.
+          # Rewrite the name in package.json before publishing, then use npm publish directly
+          # since pnpm --filter won't match the rewritten name.
+          if npm view "hyperframes@${VERSION}" version >/dev/null 2>&1; then
+            echo "⏭️  hyperframes@${VERSION} already published — skipping"
+          else
+            node -e "
+              const fs = require('fs');
+              const p = 'packages/cli/package.json';
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+              pkg.name = 'hyperframes';
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            "
+            echo "📦 Publishing hyperframes@${VERSION}..."
+            if (cd packages/cli && npm publish --access public); then
+              echo "✅ hyperframes@${VERSION} published"
+            else
+              echo "❌ hyperframes@${VERSION} failed to publish"
+              FAILED=1
+            fi
+          fi
 
           if [ "$FAILED" -ne 0 ]; then
             echo "::error::One or more packages failed to publish"
