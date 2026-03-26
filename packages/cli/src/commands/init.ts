@@ -16,6 +16,68 @@ import { c } from "../ui/colors.js";
 import { TEMPLATES, type TemplateId } from "../templates/generators.js";
 import { trackInitTemplate } from "../telemetry/events.js";
 
+// ---------------------------------------------------------------------------
+// Install skills silently after scaffolding
+// ---------------------------------------------------------------------------
+
+async function installSkills(interactive: boolean): Promise<void> {
+  try {
+    const { installAllSkills, TARGETS } = await import("./install-skills.js");
+
+    let selectedTargets: string[] | undefined;
+
+    if (interactive) {
+      const choices = await clack.multiselect({
+        message: "Install skills for:",
+        options: TARGETS.map((t) => ({
+          value: t.flag,
+          label: t.name,
+          hint: t.dir,
+        })),
+        initialValues: TARGETS.filter((t) => t.defaultEnabled).map((t) => t.flag),
+        required: false,
+      });
+
+      if (clack.isCancel(choices)) {
+        return;
+      }
+
+      selectedTargets = choices as string[];
+      if (selectedTargets.length === 0) {
+        clack.log.info(c.dim("Skipping skills installation"));
+        return;
+      }
+    }
+
+    const spin = interactive ? clack.spinner() : null;
+    spin?.start("Installing AI coding skills...");
+
+    const result = await installAllSkills(selectedTargets);
+    if (result.count > 0) {
+      const msg = `${result.count} skills installed (${result.targets.join(", ")})`;
+      if (spin) {
+        spin.stop(c.success(msg));
+      } else {
+        console.log(c.success(msg));
+      }
+      if (result.skipped.length > 0) {
+        const skipMsg = `Skipped: ${result.skipped.join(", ")} (repo not accessible)`;
+        if (interactive) {
+          clack.log.warn(c.dim(skipMsg));
+        } else {
+          console.log(c.dim(`  ${skipMsg}`));
+        }
+      }
+    } else {
+      spin?.stop(c.dim("No skills installed"));
+    }
+  } catch {
+    if (interactive) {
+      clack.log.warn(c.dim("Skills install skipped (no git or network)"));
+    }
+  }
+}
+
 const ALL_TEMPLATE_IDS = TEMPLATES.map((t) => t.id);
 
 interface VideoMeta {
@@ -343,10 +405,12 @@ export default defineCommand({
       alias: "t",
     },
     video: { type: "string", description: "Path to a source video file", alias: "V" },
+    "skip-skills": { type: "boolean", description: "Skip AI skills installation" },
   },
   async run({ args }) {
     const templateFlag = args.template;
     const videoFlag = args.video;
+    const skipSkills = args["skip-skills"] === true;
 
     // -----------------------------------------------------------------------
     // Non-interactive mode: flags provided
@@ -382,6 +446,9 @@ export default defineCommand({
 
       scaffoldProject(destDir, basename(destDir), templateId, localVideoName);
       trackInitTemplate(templateId);
+      if (!skipSkills) {
+        await installSkills(false);
+      }
 
       console.log(c.success(`\nCreated ${c.accent(name + "/")}`));
       for (const f of readdirSync(destDir)) {
@@ -502,6 +569,11 @@ export default defineCommand({
     // 4. Copy template and patch
     scaffoldProject(destDir, name, templateId, localVideoName);
     trackInitTemplate(templateId);
+
+    // 5. Install AI coding skills
+    if (!skipSkills) {
+      await installSkills(true);
+    }
 
     const files = readdirSync(destDir);
     clack.note(files.map((f) => c.accent(f)).join("\n"), c.success(`Created ${name}/`));
