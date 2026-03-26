@@ -53,14 +53,16 @@ This approach guarantees [deterministic rendering](/concepts/determinism): the s
 ## Configuration
 
 ```typescript
+import { resolveConfig, DEFAULT_CONFIG } from '@hyperframes/engine';
 import type { EngineConfig } from '@hyperframes/engine';
 
-const config: EngineConfig = {
-  fps: 30,              // Frames per second: 24, 30, or 60
-  width: 1920,          // Output width in pixels
-  height: 1080,         // Output height in pixels
-  quality: 'standard',  // Encoding preset: 'draft', 'standard', or 'high'
-};
+// Use defaults
+const config = DEFAULT_CONFIG;
+
+// Or resolve with overrides
+const config = resolveConfig({
+  // ... custom options
+});
 ```
 
 ### Quality Presets
@@ -81,28 +83,203 @@ const config: EngineConfig = {
 
 ## Programmatic Usage
 
-```typescript
-import { createEngine } from '@hyperframes/engine';
+The engine uses a session-based API for frame capture:
 
-const engine = createEngine({
+```typescript
+import {
+  createCaptureSession,
+  initializeSession,
+  captureFrame,
+  captureFrameToBuffer,
+  getCompositionDuration,
+  closeCaptureSession,
+} from '@hyperframes/engine';
+
+// 1. Create a capture session
+const session = await createCaptureSession({ fps: 30, width: 1920, height: 1080 });
+
+// 2. Initialize with a composition
+await initializeSession(session, './my-video/index.html');
+
+// 3. Get the total duration
+const duration = getCompositionDuration(session);
+
+// 4. Capture frames
+const totalFrames = Math.ceil(duration * 30);
+for (let i = 0; i < totalFrames; i++) {
+  // Capture to disk
+  const result = await captureFrame(session, i);
+  // result.path, result.captureTimeMs
+
+  // Or capture to buffer (in-memory)
+  const bufResult = await captureFrameToBuffer(session, i);
+  // bufResult.buffer, bufResult.captureTimeMs
+}
+
+// 5. Clean up
+await closeCaptureSession(session);
+```
+
+### Browser Management
+
+```typescript
+import {
+  acquireBrowser,
+  releaseBrowser,
+  resolveHeadlessShellPath,
+  buildChromeArgs,
+} from '@hyperframes/engine';
+
+// Acquire a browser instance (creates or reuses from pool)
+const browser = await acquireBrowser();
+
+// Get the Chrome binary path
+const chromePath = await resolveHeadlessShellPath();
+
+// Release when done
+await releaseBrowser(browser);
+```
+
+### Encoding
+
+The engine includes FFmpeg encoding utilities:
+
+```typescript
+import {
+  encodeFramesFromDir,
+  muxVideoWithAudio,
+  applyFaststart,
+  detectGpuEncoder,
+  ENCODER_PRESETS,
+} from '@hyperframes/engine';
+
+// Detect GPU encoding support
+const gpu = await detectGpuEncoder();
+// gpu: "nvenc" | "videotoolbox" | "vaapi" | null
+
+// Encode captured frames to video
+await encodeFramesFromDir({ framesDir, outputPath, fps: 30, quality: 'standard' });
+
+// Mix video with audio tracks
+await muxVideoWithAudio({ videoPath, audioTracks, outputPath });
+
+// Apply MP4 faststart for streaming
+await applyFaststart(outputPath);
+```
+
+### Streaming Encoder
+
+For memory-efficient encoding without writing frames to disk:
+
+```typescript
+import { spawnStreamingEncoder } from '@hyperframes/engine';
+
+const encoder = await spawnStreamingEncoder({
+  outputPath: './output.mp4',
   fps: 30,
   width: 1920,
   height: 1080,
 });
 
-// Capture all frames from a composition
-const frames = await engine.capture('./my-video/index.html');
+// Feed frames directly to encoder
+encoder.writeFrame(frameBuffer);
+// ...
+const result = await encoder.finalize();
+```
 
-// Each frame is a pixel buffer (PNG/raw)
-for (const frame of frames) {
-  // Process frames however you need:
-  // - pipe to FFmpeg
-  // - save as individual PNGs
-  // - generate a thumbnail
-  // - feed into a custom encoder
+### Video Frame Extraction
+
+Extract frames from source video files for injection into the browser:
+
+```typescript
+import {
+  parseVideoElements,
+  extractAllVideoFrames,
+  getFrameAtTime,
+  createFrameLookupTable,
+  FrameLookupTable,
+} from '@hyperframes/engine';
+
+// Parse video elements from HTML
+const videos = parseVideoElements(html);
+
+// Extract all frames from a video
+const frames = await extractAllVideoFrames(videoPath, { fps: 30 });
+
+// Create a lookup table for fast frame access
+const lookup = createFrameLookupTable(frames);
+const frame = lookup.getFrameAtTime(5.0);
+```
+
+### Audio Processing
+
+```typescript
+import { parseAudioElements, processCompositionAudio } from '@hyperframes/engine';
+
+// Parse audio elements from HTML
+const audioElements = parseAudioElements(html);
+
+// Process and mix all audio tracks
+const mixResult = await processCompositionAudio({ audioElements, duration, fps });
+```
+
+### Parallel Rendering
+
+```typescript
+import {
+  calculateOptimalWorkers,
+  distributeFrames,
+  executeParallelCapture,
+  getSystemResources,
+} from '@hyperframes/engine';
+
+// Check system resources
+const resources = getSystemResources();
+
+// Calculate optimal worker count
+const workers = calculateOptimalWorkers(totalFrames);
+
+// Distribute frames across workers
+const tasks = distributeFrames(totalFrames, workers);
+
+// Execute parallel capture
+const results = await executeParallelCapture(tasks);
+```
+
+### File Server
+
+Serve composition files over HTTP for the browser to load:
+
+```typescript
+import { createFileServer } from '@hyperframes/engine';
+
+const server = await createFileServer({ root: './my-video', port: 0 });
+// server.url, server.port
+// ... use server.url as the composition URL
+await server.close();
+```
+
+## The `window.__hf` Protocol
+
+The engine communicates with the browser page via the `window.__hf` protocol. Any page that implements this protocol can be captured by the engine — you are not limited to Hyperframes compositions.
+
+```typescript
+// The page must expose this on window.__hf
+interface HfProtocol {
+  duration: number;                  // Total duration in seconds
+  seek(time: number): void;         // Seek to a specific time
+  media?: HfMediaElement[];         // Optional media element declarations
 }
 
-await engine.close();
+interface HfMediaElement {
+  elementId: string;                 // DOM element ID
+  src: string;                       // Media source URL
+  startTime: number;                 // Start time on timeline
+  endTime: number;                   // End time on timeline
+  mediaOffset?: number;              // Playback offset in source
+  volume?: number;                   // Volume (0-1)
+  hasAudio?: boolean;                // Whether element has audio
+}
 ```
 
 ## Key Concepts

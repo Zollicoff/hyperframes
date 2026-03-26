@@ -11,7 +11,9 @@ Hyperframes includes starter templates to help you scaffold compositions quickly
 npx hyperframes init --template <name>
 ```
 
-This creates a new project directory with an `index.html` composition and any required assets.
+This creates a new project directory with an `index.html` composition, sub-compositions, and any required assets.
+
+You can also run `npx hyperframes init` without `--template` to choose interactively.
 
 ## Available Templates
 
@@ -19,76 +21,149 @@ This creates a new project directory with an `index.html` composition and any re
   <Tab title="blank">
     ### blank
 
-    An empty 1920x1080 composition with a GSAP timeline wired up and nothing else. Start from scratch.
+    An empty composition with just the scaffolding — a video element, audio track, captions sub-composition, and an empty GSAP timeline. Start from scratch.
 
-    **What it produces:** A black (empty) canvas at 1920x1080 resolution. No visible elements, no animations. The timeline is registered and ready for you to add tweens.
+    **What it produces:** A minimal project with a single video clip and audio, ready for you to customize. The timeline is registered and ready for you to add tweens.
 
-    **When to use it:** You have a specific design in mind and want full control. Good for AI agent workflows that will generate the entire composition programmatically.
+    **When to use it:** You have a specific design in mind and want full control. Good for AI agent workflows that will generate the composition programmatically, or when starting from a source video.
 
     ```bash Terminal
-    npx hyperframes init --template blank
+    npx hyperframes init my-video --template blank
     ```
 
     **What you get:**
     ```
     my-video/
-    ├── index.html          # Empty root composition with GSAP setup
-    └── assets/             # Empty directory for your media files
+    ├── meta.json
+    ├── index.html
+    └── compositions/
+        └── captions.html
     ```
   </Tab>
-  <Tab title="title-card">
-    ### title-card
+  <Tab title="warm-grain">
+    ### warm-grain
 
-    Animated title and subtitle with GSAP fade-in/out transitions.
+    A cream-toned aesthetic with grain texture overlay. Warm, organic feel suited for lifestyle and branding videos.
 
-    **What it produces:** A centered title and subtitle that fade in from the top, hold for a few seconds, then fade out. Clean, minimal typography on a solid background. Good for intro cards, chapter markers, or end screens.
+    **What it produces:** A composition with warm color grading, textured grain, and smooth transitions. Includes an intro sub-composition and captions support.
 
-    **When to use it:** You need a simple text-based segment — an intro, outro, or interstitial card between video clips.
+    **When to use it:** You want an organic, stylized look for branding, lifestyle, or editorial content.
 
     ```bash Terminal
-    npx hyperframes init --template title-card
+    npx hyperframes init my-video --template warm-grain
     ```
 
     **What you get:**
     ```
     my-video/
-    ├── index.html          # Title + subtitle with fade animations
-    └── assets/             # Empty directory for your media files
+    ├── meta.json
+    ├── index.html
+    ├── compositions/
+    │   ├── intro.html
+    │   ├── graphics.html
+    │   └── captions.html
+    └── assets/
     ```
   </Tab>
-  <Tab title="video-edit">
-    ### video-edit
+  <Tab title="play-mode">
+    ### play-mode
 
-    A video element with trimming, audio, and track controls.
+    Playful elastic animations with bold, energetic motion.
 
-    **What it produces:** A full-screen video clip with [`data-media-start`](/concepts/data-attributes#media-attributes) for trimming, a background audio track on a separate [timeline track](/concepts/data-attributes#timing-attributes), and a lower-third text overlay animated with GSAP. Demonstrates how multiple clip types work together.
+    **What it produces:** A composition with bouncy, elastic animation curves and dynamic layout transitions. Includes intro, stats, and captions sub-compositions.
 
-    **When to use it:** You are building a video editing workflow — cutting clips, adding overlays, mixing audio. This template shows the patterns for media-heavy compositions.
+    **When to use it:** You want a fun, high-energy feel — great for social media, product launches, or explainer videos.
 
     ```bash Terminal
-    npx hyperframes init --template video-edit
+    npx hyperframes init my-video --template play-mode
     ```
 
     **What you get:**
     ```
     my-video/
-    ├── index.html          # Video + audio + overlay composition
-    └── assets/             # Place your video and audio files here
+    ├── meta.json
+    ├── index.html
+    ├── compositions/
+    │   ├── intro.html
+    │   ├── stats.html
+    │   └── captions.html
+    └── assets/
+    ```
+  </Tab>
+  <Tab title="swiss-grid">
+    ### swiss-grid
+
+    Structured grid layout inspired by Swiss/International Typographic Style.
+
+    **What it produces:** A clean, grid-based composition with precise typography and structured layouts. Includes intro, graphics, and captions sub-compositions.
+
+    **When to use it:** You want a clean, professional, information-dense layout — ideal for corporate videos, data presentations, or technical content.
+
+    ```bash Terminal
+    npx hyperframes init my-video --template swiss-grid
+    ```
+
+    **What you get:**
+    ```
+    my-video/
+    ├── meta.json
+    ├── index.html
+    ├── compositions/
+    │   ├── intro.html
+    │   ├── graphics.html
+    │   └── captions.html
+    └── assets/
+    ```
+  </Tab>
+  <Tab title="vignelli">
+    ### vignelli
+
+    Bold typography with red accents, inspired by Massimo Vignelli's design philosophy.
+
+    **What it produces:** A striking composition with strong typographic hierarchy, red accent colors, and confident transitions. Includes overlays and captions sub-compositions.
+
+    **When to use it:** You want a bold, authoritative visual style — great for headlines, announcements, or editorial content.
+
+    ```bash Terminal
+    npx hyperframes init my-video --template vignelli
+    ```
+
+    **What you get:**
+    ```
+    my-video/
+    ├── meta.json
+    ├── index.html
+    ├── compositions/
+    │   ├── overlays.html
+    │   └── captions.html
+    └── assets/
     ```
   </Tab>
 </Tabs>
 
 ## Choosing a Template
 
-| Template | Best for | Complexity |
-|----------|----------|------------|
-| `blank` | Full control, agent-generated compositions | Minimal |
-| `title-card` | Text intros, outros, chapter markers | Simple |
-| `video-edit` | Video cutting, overlays, multi-track editing | Moderate |
+| Template | Style | Best for |
+|----------|-------|----------|
+| `blank` | Minimal scaffolding | Full control, agent-generated, starting from video |
+| `warm-grain` | Organic, textured | Lifestyle, branding, editorial |
+| `play-mode` | Energetic, elastic | Social media, product launches |
+| `swiss-grid` | Clean, structured | Corporate, data, technical |
+| `vignelli` | Bold, typographic | Headlines, announcements |
 
 <Tip>
-  If you are new to Hyperframes, start with `title-card` to see a working animation, then move to `blank` when you are comfortable with the [composition model](/concepts/compositions) and [GSAP animation](/guides/gsap-animation).
+  If you are new to Hyperframes, start with `warm-grain` or `play-mode` to see working animations and sub-compositions in action. Use `blank` when you want minimal scaffolding and full control. Run `npx hyperframes init` without `--template` to preview all options interactively.
 </Tip>
+
+## Passing a Source Video
+
+You can initialize a project with your own video file using the `--video` flag:
+
+```bash Terminal
+npx hyperframes init my-video --template warm-grain --video ./my-clip.mp4
+```
+
+The CLI will probe the video for duration, resolution, and codec. If the video uses an incompatible codec (not H.264, VP8/9, AV1, or Theora), it will be automatically transcoded to H.264 MP4 if FFmpeg is available.
 
 ## Custom Templates
 

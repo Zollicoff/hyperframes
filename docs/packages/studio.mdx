@@ -45,7 +45,137 @@ bun run dev
 bun run --filter @hyperframes/studio dev
 ```
 
-The studio starts at `http://localhost:3000` by default.
+## Package Exports
+
+The studio has two entry points:
+
+| Import | Description |
+|--------|-------------|
+| `@hyperframes/studio` | React components, hooks, and types |
+| `@hyperframes/studio/tailwind-preset` | Tailwind CSS preset for studio styling |
+
+Peer dependencies: `react` (18 or 19), `react-dom` (18 or 19), `zustand` (4 or 5).
+
+## Components
+
+### Layout
+
+```typescript
+import { NLELayout, NLEPreview, CompositionBreadcrumb } from '@hyperframes/studio';
+import type { CompositionLevel } from '@hyperframes/studio';
+
+// Main NLE (Non-Linear Editor) layout container
+<NLELayout>
+  {/* Preview, timeline, and editor panels */}
+</NLELayout>
+
+// Preview panel
+<NLEPreview />
+
+// Breadcrumb navigation for nested compositions
+<CompositionBreadcrumb levels={levels} />
+```
+
+### Player & Timeline
+
+```typescript
+import {
+  Player,
+  PlayerControls,
+  Timeline,
+  PreviewPanel,
+  AgentActivityTrack,
+} from '@hyperframes/studio';
+import type { AgentActivity, TimelineElement, ActiveEdits } from '@hyperframes/studio';
+
+// Embed the preview player
+<Player />
+
+// Playback controls (play, pause, seek, frame-step)
+<PlayerControls />
+
+// Timeline editor with scrubber
+<Timeline />
+
+// Preview display area
+<PreviewPanel />
+
+// Activity visualization track (for agent workflows)
+<AgentActivityTrack activities={activities} />
+```
+
+### Editor Components
+
+```typescript
+import { SourceEditor, PropertyPanel, FileTree } from '@hyperframes/studio';
+
+// Code editor (CodeMirror-based) for HTML, CSS, and JavaScript
+<SourceEditor />
+
+// Property inspector for selected elements
+<PropertyPanel />
+
+// Project file browser
+<FileTree />
+```
+
+### Full Application
+
+```typescript
+import { StudioApp } from '@hyperframes/studio';
+
+// The complete studio application (wraps all components)
+<StudioApp />
+```
+
+## Hooks
+
+### `useTimelinePlayer`
+
+Manages player state and playback control:
+
+```typescript
+import { useTimelinePlayer } from '@hyperframes/studio';
+
+const player = useTimelinePlayer();
+// player.play(), player.pause(), player.seek(time), player.stepForward(), player.stepBackward()
+```
+
+### `usePlayerStore`
+
+Zustand store for player state:
+
+```typescript
+import { usePlayerStore, liveTime, formatTime } from '@hyperframes/studio';
+
+const store = usePlayerStore();
+// Access current time, duration, playing state, etc.
+
+// Format time for display
+const display = formatTime(liveTime.current);
+```
+
+### `useCodeEditor`
+
+Code editor state and editing functions:
+
+```typescript
+import { useCodeEditor } from '@hyperframes/studio';
+
+const editor = useCodeEditor();
+// editor.code, editor.setCode(), editor.diff, editor.onChange()
+```
+
+### `useElementPicker`
+
+Element selection from the preview:
+
+```typescript
+import { useElementPicker } from '@hyperframes/studio';
+
+const picker = useElementPicker();
+// picker.selectedElement, picker.selectElement(id), picker.clearSelection()
+```
 
 ## Features
 
@@ -91,28 +221,19 @@ The studio is a React application with the following structure:
 
 4. **File watcher** — a development server (Vite-based) watches your project files and triggers hot module replacement when changes are detected.
 
-## Embedding in Your Own Application
+## Tailwind CSS Preset
 
-If you are building a product that includes a composition editor, you can use the studio's components directly:
+The studio exports a Tailwind CSS preset for consistent styling:
 
 ```typescript
-import { Player, Timeline } from '@hyperframes/studio';
+// tailwind.config.ts
+import studioPreset from '@hyperframes/studio/tailwind-preset';
 
-// Embed the preview player
-<Player
-  src="./my-composition/index.html"
-  width={1920}
-  height={1080}
-  autoPlay={false}
-/>
-
-// Embed the timeline view
-<Timeline compositionHtml={htmlString} />
+export default {
+  presets: [studioPreset],
+  // ... your config
+};
 ```
-
-<Info>
-  The studio depends on `@hyperframes/core` for parsing and runtime injection. You do not need to install core separately — it is included as a dependency.
-</Info>
 
 ## Related Packages
 

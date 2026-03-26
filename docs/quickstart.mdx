@@ -12,15 +12,15 @@ A 1920x1080 video with an animated title that fades in from above — rendered t
 ## Prerequisites
 
 <Steps>
-  <Step title="Install Node.js 20+">
-    Hyperframes requires Node.js 20 or later. Check your version:
+  <Step title="Install Node.js 22+">
+    Hyperframes requires Node.js 22 or later. Check your version:
 
     ```bash
     node --version
     ```
 
     ```bash Expected output
-    v20.11.0   # or any version >= 20
+    v22.0.0   # or any version >= 22
     ```
   </Step>
 
@@ -58,36 +58,46 @@ A 1920x1080 video with an animated title that fades in from above — rendered t
 <Steps>
   <Step title="Scaffold the project">
     ```bash
-    npx create-hyperframe my-video
+    npx hyperframes init my-video --template blank
     cd my-video
     ```
 
-    ```bash Expected output
-    ✔ Created my-video/
-    ✔ index.html
-    ✔ assets/
-    Done. Run `npx hyperframes dev` to preview.
+    The CLI is non-interactive by default — pass `--template` to select a template. For interactive mode with prompts and menus, add `--human-friendly`:
+
+    ```bash
+    npx hyperframes init --human-friendly
     ```
 
-    This generates the following project structure:
+    See [Templates](/guides/templates) for all available templates.
+
+    This generates a project structure like:
 
     <Tree>
       <Tree.Folder name="my-video" defaultOpen>
+        <Tree.File name="meta.json" />
         <Tree.File name="index.html" />
         <Tree.Folder name="compositions" defaultOpen>
-          <Tree.File name=".gitkeep" />
+          <Tree.File name="intro.html" />
+          <Tree.File name="captions.html" />
         </Tree.Folder>
         <Tree.Folder name="assets" defaultOpen>
-          <Tree.File name=".gitkeep" />
+          <Tree.File name="video.mp4" />
         </Tree.Folder>
       </Tree.Folder>
     </Tree>
 
     | Path | Purpose |
     |------|---------|
+    | `meta.json` | Project metadata (name, ID, creation date) |
     | `index.html` | Root composition — your video's entry point |
     | `compositions/` | Sub-compositions loaded via `data-composition-src` |
     | `assets/` | Media files (video, audio, images) |
+
+    If you have a source video, pass it with `--video` for automatic transcription and captions:
+
+    ```bash
+    npx hyperframes init my-video --template warm-grain --video ./intro.mp4
+    ```
   </Step>
 
   <Step title="Preview in the browser">
@@ -95,12 +105,7 @@ A 1920x1080 video with an animated title that fades in from above — rendered t
     npx hyperframes dev
     ```
 
-    ```bash Expected output
-    ✔ Hyperframes dev server running
-      → http://localhost:3000
-    ```
-
-    Open [http://localhost:3000](http://localhost:3000) to see the live preview. Edits to `index.html` reload automatically.
+    This starts the Hyperframes Studio and opens your composition in the browser. Edits to `index.html` reload automatically.
 
     <Tip>
       The dev server supports hot reload — save your HTML file and the preview updates instantly, no manual refresh needed.
@@ -145,7 +150,7 @@ A 1920x1080 video with an animated title that fades in from above — rendered t
 
   <Step title="Render to MP4">
     ```bash
-    npx hyperframes render -o output.mp4
+    npx hyperframes render --output output.mp4
     ```
 
     ```bash Expected output
@@ -162,8 +167,8 @@ A 1920x1080 video with an animated title that fades in from above — rendered t
 
 | Dependency | Required | Notes |
 |-----------|----------|-------|
-| **Node.js** 20+ | Yes | Runtime for CLI and dev server |
-| **bun** or npm | Yes | Package manager (bun recommended) |
+| **Node.js** 22+ | Yes | Runtime for CLI and dev server |
+| **npm** or bun | Yes | Package manager |
 | **FFmpeg** | Yes | Video encoding for local renders |
 | **Docker** | No | Optional — for deterministic, reproducible renders |
 
@@ -177,7 +182,7 @@ A 1920x1080 video with an animated title that fades in from above — rendered t
     Add fade, slide, scale, and custom animations to your videos
   </Card>
   <Card title="Templates" icon="grid-2" href="/guides/templates">
-    Start from built-in templates like title-card and video-edit
+    Start from built-in templates like Warm Grain and Swiss Grid
   </Card>
   <Card title="Rendering" icon="film" href="/guides/rendering">
     Explore render options: quality presets, Docker mode, and GPU encoding

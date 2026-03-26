@@ -44,7 +44,7 @@ If your issue is about a specific coding mistake (animations not working, video 
     After installing, run `npx hyperframes doctor` to verify the CLI can find it.
 
     <Tip>
-      If you cannot install FFmpeg, use [Docker mode](/guides/rendering) instead — it bundles FFmpeg inside the container: `npx hyperframes render --docker -o output.mp4`
+      If you cannot install FFmpeg, use [Docker mode](/guides/rendering) instead — it bundles FFmpeg inside the container: `npx hyperframes render --docker --output output.mp4`
     </Tip>
   </Accordion>
 
@@ -79,7 +79,7 @@ If your issue is about a specific coding mistake (animations not working, video 
     - **System-specific rendering** — GPU compositing, subpixel antialiasing, etc.
 
     ```bash Terminal
-    npx hyperframes render --docker -o output.mp4
+    npx hyperframes render --docker --output output.mp4
     ```
 
     See [Rendering: When to Use Each Mode](/guides/rendering#when-to-use-each-mode) for guidance on choosing between local and Docker rendering.
