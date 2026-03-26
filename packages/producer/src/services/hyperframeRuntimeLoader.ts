@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PRODUCER_DIR = dirname(fileURLToPath(import.meta.url));
+const SIBLING_MANIFEST_PATH = resolve(PRODUCER_DIR, "hyperframe.manifest.json");
 const MODULE_RELATIVE_MANIFEST_PATH = resolve(
   PRODUCER_DIR,
   "../../../core/dist/hyperframe.manifest.json",
@@ -32,7 +33,11 @@ export function resolveHyperframeManifestPath(): string {
   if (process.env.PRODUCER_HYPERFRAME_MANIFEST_PATH) {
     return process.env.PRODUCER_HYPERFRAME_MANIFEST_PATH;
   }
-  const candidates = [...CWD_RELATIVE_MANIFEST_PATHS, MODULE_RELATIVE_MANIFEST_PATH];
+  const candidates = [
+    SIBLING_MANIFEST_PATH,
+    ...CWD_RELATIVE_MANIFEST_PATHS,
+    MODULE_RELATIVE_MANIFEST_PATH,
+  ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return candidate;
