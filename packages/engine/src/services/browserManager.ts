@@ -108,11 +108,7 @@ export async function acquireBrowser(
   } else {
     // Screenshot mode with renderSeek: works on all platforms.
     captureMode = "screenshot";
-    if (headlessShell && !isLinux) {
-      executablePath = headlessShell;
-    } else {
-      executablePath = undefined; // Puppeteer uses its bundled Chromium
-    }
+    executablePath = headlessShell ?? undefined;
   }
 
   const ppt = await getPuppeteer();

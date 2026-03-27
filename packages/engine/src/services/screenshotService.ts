@@ -104,6 +104,8 @@ export async function pageScreenshotCapture(page: Page, options: CaptureOptions)
   const result = await client.send("Page.captureScreenshot", {
     format,
     quality: format === "jpeg" ? (options.quality ?? 80) : undefined,
+    fromSurface: true,
+    captureBeyondViewport: false,
     optimizeForSpeed: true,
   });
   return Buffer.from(result.data, "base64");

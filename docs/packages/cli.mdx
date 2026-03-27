@@ -233,7 +233,7 @@ This is suppressed in CI environments, non-TTY shells, and when `HYPERFRAMES_NO_
   <Tab title="Build">
     ### `render`
 
-    Render a composition to MP4:
+    Render a composition to MP4 or WebM:
 
     ```bash
     # Local mode (fast iteration)
@@ -242,6 +242,9 @@ This is suppressed in CI environments, non-TTY shells, and when `HYPERFRAMES_NO_
     # Docker mode (deterministic output)
     npx hyperframes render --docker --output output.mp4
 
+    # WebM with transparency (for overlays, captions, lower thirds)
+    npx hyperframes render --format webm --output overlay.webm
+
     # With options
     npx hyperframes render --output output.mp4 --fps 60 --quality high
     ```
@@ -249,12 +252,30 @@ This is suppressed in CI environments, non-TTY shells, and when `HYPERFRAMES_NO_
     | Flag | Values | Default | Description |
     |------|--------|---------|-------------|
     | `--output` | path | `renders/<name>.mp4` | Output file path |
+    | `--format` | mp4, webm | mp4 | Output format (WebM renders with transparency) |
     | `--fps` | 24, 30, 60 | 30 | Frames per second |
     | `--quality` | draft, standard, high | standard | Encoding quality preset |
     | `--workers` | 1-8 | 4 | Parallel render workers |
     | `--gpu` | — | off | GPU encoding (NVENC, VideoToolbox, VAAPI) |
     | `--docker` | — | off | Use Docker for [deterministic rendering](/concepts/determinism) |
     | `--quiet` | — | off | Suppress verbose output |
+
+    #### WebM with Transparency
+
+    Use `--format webm` to render compositions with a transparent background. This produces VP9 video with alpha channel in a WebM container — the standard format for overlayable video.
+
+    ```bash
+    # Render a caption overlay with transparent background
+    npx hyperframes render --format webm --output captions.webm
+
+    # Overlay on another video with FFmpeg
+    ffmpeg -c:v libvpx-vp9 -i captions.webm -i background.mp4 \
+      -filter_complex "[1:v][0:v]overlay=0:0" -y composited.mp4
+    ```
+
+    <Tip>
+      For transparency to work, your composition's HTML should use `background: transparent` on the root elements. WebM renders use PNG frame capture (instead of JPEG) to preserve the alpha channel.
+    </Tip>
 
     See [Rendering](/guides/rendering) for all options and modes.
 

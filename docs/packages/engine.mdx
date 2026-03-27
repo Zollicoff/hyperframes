@@ -22,7 +22,7 @@ npm install @hyperframes/engine
 - Implement a custom encoding backend (not FFmpeg)
 
 **Use a different package if you want to:**
-- Render an HTML composition to a finished MP4 — use the [producer](/packages/producer) or [CLI](/packages/cli)
+- Render an HTML composition to a finished MP4 or WebM — use the [producer](/packages/producer) or [CLI](/packages/cli)
 - Preview compositions in the browser — use the [CLI](/packages/cli) or [studio](/packages/studio)
 - Lint or parse composition HTML — use [core](/packages/core)
 
@@ -142,7 +142,7 @@ await releaseBrowser(browser);
 
 ### Encoding
 
-The engine includes FFmpeg encoding utilities:
+The engine includes FFmpeg encoding utilities with support for MP4 (h264) and WebM (VP9 with alpha):
 
 ```typescript
 import {
@@ -150,22 +150,41 @@ import {
   muxVideoWithAudio,
   applyFaststart,
   detectGpuEncoder,
+  getEncoderPreset,
   ENCODER_PRESETS,
 } from '@hyperframes/engine';
+
+// Get format-aware encoder settings
+const mp4Preset = getEncoderPreset('standard', 'mp4');
+// { codec: "h264", pixelFormat: "yuv420p", preset: "medium", quality: 23 }
+
+const webmPreset = getEncoderPreset('standard', 'webm');
+// { codec: "vp9", pixelFormat: "yuva420p", preset: "good", quality: 23 }
+
+// Encode captured frames to video
+await encodeFramesFromDir(framesDir, 'frame_%06d.png', outputPath, {
+  fps: 30,
+  ...webmPreset,
+});
+
+// Mix video with audio (uses Opus for WebM, AAC for MP4)
+await muxVideoWithAudio(videoPath, audioPath, outputPath);
+
+// Apply MP4 faststart for streaming (no-op for WebM)
+await applyFaststart(inputPath, outputPath);
 
 // Detect GPU encoding support
 const gpu = await detectGpuEncoder();
 // gpu: "nvenc" | "videotoolbox" | "vaapi" | null
-
-// Encode captured frames to video
-await encodeFramesFromDir({ framesDir, outputPath, fps: 30, quality: 'standard' });
-
-// Mix video with audio tracks
-await muxVideoWithAudio({ videoPath, audioTracks, outputPath });
-
-// Apply MP4 faststart for streaming
-await applyFaststart(outputPath);
 ```
+
+#### WebM with VP9 Alpha
+
+When encoding for transparency, use `format: "webm"` with `getEncoderPreset()`. This configures:
+- **VP9 codec** (`libvpx-vp9`) with alpha-capable `yuva420p` pixel format
+- **`-auto-alt-ref 0`** and **`alpha_mode=1`** metadata for proper alpha encoding
+- **`-row-mt 1`** for multi-threaded VP9 encoding
+- **Opus audio** in the mux step (instead of AAC for MP4)
 
 ### Streaming Encoder
 

@@ -6,7 +6,7 @@
  */
 
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { type GpuEncoder, getCachedGpuEncoder, getGpuEncoderName } from "../utils/gpuEncoder.js";
@@ -20,6 +20,26 @@ export const ENCODER_PRESETS = {
   standard: { preset: "medium", quality: 23, codec: "h264" as const },
   high: { preset: "slow", quality: 18, codec: "h264" as const },
 };
+
+/**
+ * Get encoder preset for a given quality and output format.
+ * WebM uses VP9 with alpha-capable pixel format; MP4 uses h264.
+ */
+export function getEncoderPreset(
+  quality: "draft" | "standard" | "high",
+  format: "mp4" | "webm" = "mp4",
+): { preset: string; quality: number; codec: "h264" | "vp9"; pixelFormat: string } {
+  const base = ENCODER_PRESETS[quality];
+  if (format === "webm") {
+    return {
+      preset: base.preset === "ultrafast" ? "realtime" : "good",
+      quality: base.quality,
+      codec: "vp9",
+      pixelFormat: "yuva420p",
+    };
+  }
+  return { ...base, pixelFormat: "yuv420p" };
+}
 
 // Re-export GPU utilities so existing consumers that import from chunkEncoder still work.
 export { detectGpuEncoder, type GpuEncoder } from "../utils/gpuEncoder.js";
@@ -83,6 +103,11 @@ function buildEncoderArgs(
   } else if (codec === "vp9") {
     args.push("-c:v", "libvpx-vp9", "-b:v", bitrate || "0", "-crf", String(quality));
     args.push("-deadline", preset === "ultrafast" ? "realtime" : "good");
+    args.push("-row-mt", "1");
+    if (pixelFormat === "yuva420p") {
+      args.push("-auto-alt-ref", "0");
+      args.push("-metadata:s:v:0", "alpha_mode=1");
+    }
   } else if (codec === "prores") {
     args.push("-c:v", "prores_ks", "-profile:v", preset, "-vendor", "apl0");
     return [...args, "-y", outputPath];
@@ -243,7 +268,8 @@ export async function encodeFramesChunkedConcat(
     }
     const startNumber = i * chunkSize;
     const framesInChunk = Math.min(chunkSize, files.length - startNumber);
-    const chunkPath = join(chunkDir, `chunk_${String(i).padStart(4, "0")}.mp4`);
+    const ext = outputPath.endsWith(".webm") ? ".webm" : ".mp4";
+    const chunkPath = join(chunkDir, `chunk_${String(i).padStart(4, "0")}${ext}`);
     const inputPath = join(framesDir, framePattern);
     const inputArgs = [
       "-framerate",
@@ -347,23 +373,15 @@ export async function muxVideoWithAudio(
   const outputDir = dirname(outputPath);
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
 
-  const args = [
-    "-i",
-    videoPath,
-    "-i",
-    audioPath,
-    "-c:v",
-    "copy",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "192k",
-    "-shortest",
-    "-movflags",
-    "+faststart",
-    "-y",
-    outputPath,
-  ];
+  const isWebm = outputPath.endsWith(".webm");
+  const args = ["-i", videoPath, "-i", audioPath, "-c:v", "copy"];
+
+  if (isWebm) {
+    args.push("-c:a", "libopus", "-b:a", "128k");
+  } else {
+    args.push("-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart");
+  }
+  args.push("-shortest", "-y", outputPath);
 
   const processTimeout = config?.ffmpegProcessTimeout ?? DEFAULT_CONFIG.ffmpegProcessTimeout;
   const result = await runFfmpeg(args, { signal, timeout: processTimeout });
@@ -394,6 +412,11 @@ export async function applyFaststart(
   signal?: AbortSignal,
   config?: Partial<Pick<EngineConfig, "ffmpegProcessTimeout">>,
 ): Promise<MuxResult> {
+  // faststart is MP4-only (moves moov atom to file start for streaming)
+  if (outputPath.endsWith(".webm")) {
+    if (inputPath !== outputPath) copyFileSync(inputPath, outputPath);
+    return { success: true, outputPath, durationMs: 0 };
+  }
   const args = ["-i", inputPath, "-c", "copy", "-movflags", "+faststart", "-y", outputPath];
 
   const processTimeout = config?.ffmpegProcessTimeout ?? DEFAULT_CONFIG.ffmpegProcessTimeout;

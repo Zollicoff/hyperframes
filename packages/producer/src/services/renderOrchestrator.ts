@@ -44,7 +44,7 @@ import {
   encodeFramesChunkedConcat,
   muxVideoWithAudio,
   applyFaststart,
-  ENCODER_PRESETS,
+  getEncoderPreset,
   processCompositionAudio,
   type AudioElement,
   calculateOptimalWorkers,
@@ -99,6 +99,8 @@ export type RenderStatus =
 export interface RenderConfig {
   fps: 24 | 30 | 60;
   quality: "draft" | "standard" | "high";
+  /** Output container format. WebM uses VP9+alpha for transparency. */
+  format?: "mp4" | "webm";
   workers?: number;
   useGpu?: boolean;
   debug?: boolean;
@@ -354,7 +356,13 @@ export async function executeRenderJob(
   let restoreLogger: (() => void) | null = null;
   const perfStages: Record<string, number> = {};
   const perfOutputPath = join(workDir, "perf-summary.json");
-  const cfg = job.config.producerConfig ?? resolveConfig();
+  const cfg = { ...(job.config.producerConfig ?? resolveConfig()) };
+  const outputFormat = (job.config.format ?? "mp4") as "mp4" | "webm";
+  const isWebm = outputFormat === "webm";
+  // WebM/transparency requires screenshot mode — beginFrame doesn't support alpha channel
+  if (isWebm) {
+    cfg.forceScreenshot = true;
+  }
   const enableChunkedEncode = cfg.enableChunkedEncode;
   const chunkedEncodeSize = cfg.chunkSizeFrames;
   const enableStreamingEncode = cfg.enableStreamingEncode;
@@ -458,8 +466,8 @@ export async function executeRenderJob(
         width,
         height,
         fps: job.config.fps,
-        format: "jpeg",
-        quality: 80,
+        format: isWebm ? "png" : "jpeg",
+        quality: isWebm ? undefined : 80,
       };
       probeSession = await createCaptureSession(
         fileServer.url,
@@ -702,14 +710,15 @@ export async function executeRenderJob(
       width,
       height,
       fps: job.config.fps,
-      format: "jpeg",
-      quality: job.config.quality === "draft" ? 80 : 95,
+      format: isWebm ? "png" : "jpeg",
+      quality: isWebm ? undefined : job.config.quality === "draft" ? 80 : 95,
     };
 
     const workerCount = calculateOptimalWorkers(job.totalFrames!, job.config.workers, cfg);
 
-    const videoOnlyPath = join(workDir, "video-only.mp4");
-    const preset = ENCODER_PRESETS[job.config.quality];
+    const videoExt = isWebm ? ".webm" : ".mp4";
+    const videoOnlyPath = join(workDir, `video-only${videoExt}`);
+    const preset = getEncoderPreset(job.config.quality, outputFormat);
 
     job.framesRendered = 0;
 
@@ -727,6 +736,7 @@ export async function executeRenderJob(
           codec: preset.codec,
           preset: preset.preset,
           quality: preset.quality,
+          pixelFormat: preset.pixelFormat,
           useGpu: job.config.useGpu,
           imageFormat: captureOptions.format || "jpeg",
         },
@@ -940,36 +950,32 @@ export async function executeRenderJob(
       const stage5Start = Date.now();
       updateJobStatus(job, "encoding", "Encoding video", 75, onProgress);
 
+      const frameExt = isWebm ? "png" : "jpg";
+      const framePattern = `frame_%06d.${frameExt}`;
+      const encoderOpts = {
+        fps: job.config.fps,
+        width,
+        height,
+        codec: preset.codec,
+        preset: preset.preset,
+        quality: preset.quality,
+        pixelFormat: preset.pixelFormat,
+        useGpu: job.config.useGpu,
+      };
       const encodeResult = enableChunkedEncode
         ? await encodeFramesChunkedConcat(
             framesDir,
-            "frame_%06d.jpg",
+            framePattern,
             videoOnlyPath,
-            {
-              fps: job.config.fps,
-              width,
-              height,
-              codec: preset.codec,
-              preset: preset.preset,
-              quality: preset.quality,
-              useGpu: job.config.useGpu,
-            },
+            encoderOpts,
             chunkedEncodeSize,
             abortSignal,
           )
         : await encodeFramesFromDir(
             framesDir,
-            "frame_%06d.jpg",
+            framePattern,
             videoOnlyPath,
-            {
-              fps: job.config.fps,
-              width,
-              height,
-              codec: preset.codec,
-              preset: preset.preset,
-              quality: preset.quality,
-              useGpu: job.config.useGpu,
-            },
+            encoderOpts,
             abortSignal,
           );
       assertNotAborted();
@@ -1060,7 +1066,7 @@ export async function executeRenderJob(
     if (job.config.debug) {
       // Copy output MP4 into debug dir for easy access
       if (existsSync(outputPath)) {
-        const debugOutput = join(workDir, "output.mp4");
+        const debugOutput = join(workDir, isWebm ? "output.webm" : "output.mp4");
         copyFileSync(outputPath, debugOutput);
       }
     } else {

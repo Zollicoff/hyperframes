@@ -3,7 +3,7 @@ title: "@hyperframes/producer"
 description: "Full HTML-to-video rendering pipeline with encoding, audio mixing, and Docker support."
 ---
 
-The producer package combines the [engine's](/packages/engine) frame capture with FFmpeg encoding to deliver a complete HTML-to-MP4 rendering pipeline. It handles runtime injection, readiness gates, audio mixing, and optional Docker-based deterministic rendering.
+The producer package combines the [engine's](/packages/engine) frame capture with FFmpeg encoding to deliver a complete HTML-to-video rendering pipeline. It supports MP4 (h264) and WebM (VP9 with alpha transparency), and handles runtime injection, readiness gates, audio mixing, and optional Docker-based deterministic rendering.
 
 ```bash
 npm install @hyperframes/producer
@@ -12,7 +12,7 @@ npm install @hyperframes/producer
 ## When to Use
 
 **Use `@hyperframes/producer` when you need to:**
-- Render compositions to MP4 programmatically from Node.js (e.g., in a backend service or CI pipeline)
+- Render compositions to MP4 or WebM programmatically from Node.js (e.g., in a backend service or CI pipeline)
 - Build a custom rendering service with fine-grained control over the pipeline
 - Run visual regression tests against golden baselines
 - Benchmark render performance across different configurations
@@ -44,8 +44,8 @@ The producer orchestrates the full render pipeline:
   <Step title="Capture frames via the engine">
     Uses the [engine's](/packages/engine) BeginFrame pipeline to capture each frame as a pixel buffer.
   </Step>
-  <Step title="Encode to MP4 via FFmpeg">
-    Pipes frame buffers into FFmpeg with the selected quality preset and encoding settings.
+  <Step title="Encode to MP4 or WebM via FFmpeg">
+    Pipes frame buffers into FFmpeg with the selected quality preset. MP4 uses h264; WebM uses VP9 with alpha transparency support.
   </Step>
   <Step title="Mix audio tracks">
     Extracts audio from video clips and audio elements, applies `data-volume` and `data-media-start` offsets, and mixes them into the final MP4.
@@ -77,11 +77,32 @@ import type { RenderConfig } from '@hyperframes/producer';
 const config: RenderConfig = {
   fps: 30,                   // 24, 30, or 60
   quality: 'standard',       // 'draft', 'standard', or 'high'
+  format: 'mp4',             // 'mp4' or 'webm' (WebM renders with transparency)
   workers: 4,                // Parallel render workers (1-8)
   useGpu: false,             // GPU-accelerated encoding
   debug: false,              // Debug logging
 };
 ```
+
+#### WebM with Transparency
+
+Set `format: 'webm'` to render with a transparent background using VP9 alpha:
+
+```typescript
+const job = createRenderJob({
+  fps: 30,
+  quality: 'standard',
+  format: 'webm',
+});
+
+await executeRenderJob(job, './my-overlay', './overlay.webm');
+```
+
+When `format: 'webm'`:
+- Frames are captured as PNG (preserves alpha channel)
+- Chrome's page background is set to transparent via CDP
+- FFmpeg encodes with VP9 + `yuva420p` pixel format
+- Audio is encoded as Opus (instead of AAC for MP4)
 
 ### Progress Callbacks
 

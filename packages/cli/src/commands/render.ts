@@ -10,14 +10,29 @@ import { trackRenderComplete, trackRenderError } from "../telemetry/events.js";
 
 const VALID_FPS = new Set([24, 30, 60]);
 const VALID_QUALITY = new Set(["draft", "standard", "high"]);
+const VALID_FORMAT = new Set(["mp4", "webm"]);
 
 export default defineCommand({
-  meta: { name: "render", description: "Render a composition to MP4" },
+  meta: {
+    name: "render",
+    description: `Render a composition to MP4 or WebM
+
+Examples:
+  hyperframes render --output output.mp4
+  hyperframes render --format webm --output overlay.webm    # transparent WebM
+  hyperframes render --fps 60 --quality high --output hd.mp4
+  hyperframes render --docker --output deterministic.mp4`,
+  },
   args: {
     dir: { type: "positional", description: "Project directory", required: false },
     output: { type: "string", description: "Output path (default: renders/<name>.mp4)" },
     fps: { type: "string", description: "Frame rate: 24, 30, 60", default: "30" },
     quality: { type: "string", description: "Quality: draft, standard, high", default: "standard" },
+    format: {
+      type: "string",
+      description: "Output format: mp4, webm (WebM renders with transparency)",
+      default: "mp4",
+    },
     workers: { type: "string", description: "Parallel workers 1-8" },
     docker: { type: "boolean", description: "Use Docker for deterministic render", default: false },
     gpu: { type: "boolean", description: "Use GPU encoding", default: false },
@@ -43,6 +58,14 @@ export default defineCommand({
     }
     const quality = qualityRaw as "draft" | "standard" | "high";
 
+    // ── Validate format ─────────────────────────────────────────────────
+    const formatRaw = args.format ?? "mp4";
+    if (!VALID_FORMAT.has(formatRaw)) {
+      errorBox("Invalid format", `Got "${formatRaw}". Must be mp4 or webm.`);
+      process.exit(1);
+    }
+    const format = formatRaw as "mp4" | "webm";
+
     // ── Validate workers ──────────────────────────────────────────────────
     let workers: number | undefined;
     if (args.workers != null) {
@@ -56,7 +79,10 @@ export default defineCommand({
 
     // ── Resolve output path ───────────────────────────────────────────────
     const rendersDir = resolve("renders");
-    const outputPath = args.output ? resolve(args.output) : join(rendersDir, `${project.name}.mp4`);
+    const ext = format === "webm" ? ".webm" : ".mp4";
+    const outputPath = args.output
+      ? resolve(args.output)
+      : join(rendersDir, `${project.name}${ext}`);
 
     // Ensure output directory exists
     const outputDir = dirname(outputPath);
@@ -129,11 +155,19 @@ export default defineCommand({
 
     // ── Render ────────────────────────────────────────────────────────────
     if (useDocker) {
-      await renderDocker(project.dir, outputPath, { fps, quality, workers, gpu: useGpu, quiet });
+      await renderDocker(project.dir, outputPath, {
+        fps,
+        quality,
+        format,
+        workers,
+        gpu: useGpu,
+        quiet,
+      });
     } else {
       await renderLocal(project.dir, outputPath, {
         fps,
         quality,
+        format,
         workers,
         gpu: useGpu,
         quiet,
@@ -146,6 +180,7 @@ export default defineCommand({
 interface RenderOptions {
   fps: 24 | 30 | 60;
   quality: "draft" | "standard" | "high";
+  format: "mp4" | "webm";
   workers?: number;
   gpu: boolean;
   quiet: boolean;
@@ -164,6 +199,7 @@ async function renderDocker(
     const job = producer.createRenderJob({
       fps: options.fps,
       quality: options.quality,
+      format: options.format,
       workers: options.workers,
       useGpu: options.gpu,
     });
@@ -206,6 +242,7 @@ async function renderLocal(
   const job = producer.createRenderJob({
     fps: options.fps,
     quality: options.quality,
+    format: options.format,
     workers: options.workers,
     useGpu: options.gpu,
   });
