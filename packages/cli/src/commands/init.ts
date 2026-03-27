@@ -196,13 +196,26 @@ function transcodeToMp4(inputPath: string, outputPath: string): Promise<boolean>
 // Static template helpers
 // ---------------------------------------------------------------------------
 
-function getStaticTemplateDir(templateId: string): string {
-  const dir = dirname(fileURLToPath(import.meta.url));
-  // In dev: cli/src/commands/ → ../templates = cli/src/templates/
-  // In built: cli/dist/ → templates = cli/dist/templates/
-  const devPath = resolve(dir, "..", "templates", templateId);
-  const builtPath = resolve(dir, "templates", templateId);
+/** Resolve an asset directory that differs between dev (src/) and built (dist/). */
+function resolveAssetDir(devSegments: string[], builtSegments: string[]): string {
+  const base = dirname(fileURLToPath(import.meta.url));
+  const devPath = resolve(base, ...devSegments);
+  const builtPath = resolve(base, ...builtSegments);
   return existsSync(devPath) ? devPath : builtPath;
+}
+
+function getStaticTemplateDir(templateId: string): string {
+  return resolveAssetDir(["..", "templates", templateId], ["templates", templateId]);
+}
+
+function getSharedTemplateDir(): string {
+  return resolveAssetDir(["..", "templates", "_shared"], ["templates", "_shared"]);
+}
+
+function getBundledSkillsDir(): string {
+  // In dev: cli/src/commands/ → repo root skills/
+  // In built: cli/dist/ → cli/dist/skills/
+  return resolveAssetDir(["..", "..", "..", "..", "skills"], ["skills"]);
 }
 
 function patchVideoSrc(
@@ -410,6 +423,32 @@ function scaffoldProject(
     ),
     "utf-8",
   );
+
+  // Copy shared files (CLAUDE.md, AGENTS.md) for AI agent context
+  const sharedDir = getSharedTemplateDir();
+  if (existsSync(sharedDir)) {
+    for (const entry of readdirSync(sharedDir, { withFileTypes: true })) {
+      const src = join(sharedDir, entry.name);
+      const dest = resolve(destDir, entry.name);
+      if (entry.isFile() || entry.isSymbolicLink()) {
+        copyFileSync(src, dest);
+      }
+    }
+  }
+
+  // Copy project-level skills (.claude/skills/) for immediate availability
+  const skillsSrcDir = getBundledSkillsDir();
+  if (existsSync(skillsSrcDir)) {
+    const projectSkills = ["compose-video", "captions"];
+    for (const skill of projectSkills) {
+      const src = join(skillsSrcDir, skill);
+      if (existsSync(src)) {
+        const dest = resolve(destDir, ".claude", "skills", skill);
+        mkdirSync(dest, { recursive: true });
+        cpSync(src, dest, { recursive: true });
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -578,9 +617,28 @@ Examples:
       }
 
       console.log(c.success(`Created ${c.accent(name + "/")}`));
-      for (const f of readdirSync(destDir)) {
+      for (const f of readdirSync(destDir).filter((f) => !f.startsWith("."))) {
         console.log(`  ${c.accent(f)}`);
       }
+      console.log();
+      console.log("Next steps:");
+      console.log(
+        `  ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes dev")}      ${c.dim("# preview in studio")}`,
+      );
+      console.log(
+        `  ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes render")}   ${c.dim("# render to MP4")}`,
+      );
+      console.log(
+        `  ${c.accent("npx hyperframes docs")} ${c.dim("<topic>")}              ${c.dim("# learn composition syntax")}`,
+      );
+      console.log(
+        `    ${c.dim("topics: data-attributes, gsap, compositions, rendering, templates, troubleshooting")}`,
+      );
+      console.log();
+      console.log(
+        `  ${c.dim("AI skills installed — open this folder in your AI coding agent to get started.")}`,
+      );
+      console.log(`  ${c.dim("Full docs: hyperframes.heygen.com")}`);
       return;
     }
 
