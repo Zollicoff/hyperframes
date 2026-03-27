@@ -13,6 +13,8 @@ import { c } from "../ui/colors.js";
 interface Target {
   name: string;
   flag: string;
+  /** Agent name for `npx skills add -a <agent>` */
+  skillsAgent: string;
   dir: string;
   defaultEnabled: boolean;
 }
@@ -21,24 +23,28 @@ const TARGETS: Target[] = [
   {
     name: "Claude Code",
     flag: "claude",
+    skillsAgent: "claude-code",
     dir: join(homedir(), ".claude", "skills"),
     defaultEnabled: true,
   },
   {
     name: "Gemini CLI",
     flag: "gemini",
+    skillsAgent: "gemini-cli",
     dir: join(homedir(), ".gemini", "skills"),
     defaultEnabled: true,
   },
   {
     name: "Codex CLI",
     flag: "codex",
+    skillsAgent: "codex",
     dir: join(homedir(), ".codex", "skills"),
     defaultEnabled: true,
   },
   {
     name: "Cursor",
     flag: "cursor",
+    skillsAgent: "cursor",
     get dir() {
       return join(process.cwd(), ".cursor", "skills");
     },
@@ -47,34 +53,61 @@ const TARGETS: Target[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Skill sources — all fetched from GitHub
+// Skill sources — GitHub repos containing skill directories
 // ---------------------------------------------------------------------------
 
 interface SkillSource {
   name: string;
+  /** GitHub shorthand (owner/repo) or full URL */
   repo: string;
-  /** Subdirectory within the repo that contains skill folders */
+  /** For fallback: subdirectory within the repo that contains skill folders */
   skillsPath: string;
+  /** For fallback: local cache directory */
   cache: string;
 }
 
 const SOURCES: SkillSource[] = [
   {
     name: "HyperFrames",
-    repo: "https://github.com/heygen-com/hyperframes.git",
+    repo: "heygen-com/hyperframes",
     skillsPath: "skills",
     cache: join(homedir(), ".cache", "hyperframes", "hyperframes-skills"),
   },
   {
     name: "GSAP",
-    repo: "https://github.com/greensock/gsap-skills.git",
+    repo: "greensock/gsap-skills",
     skillsPath: "skills",
     cache: join(homedir(), ".cache", "hyperframes", "gsap-skills"),
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Git helpers
+// npx skills add — primary install method
+// ---------------------------------------------------------------------------
+
+function hasNpx(): boolean {
+  try {
+    execFileSync("npx", ["--version"], { stdio: "ignore", timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runSkillsAdd(repo: string, agents: string[], global: boolean): void {
+  const args = ["skills", "add", repo, "-y"];
+  if (global) args.push("-g");
+  for (const agent of agents) {
+    args.push("-a", agent);
+  }
+  execFileSync("npx", args, {
+    stdio: "ignore",
+    timeout: 120_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fallback — git clone + copy (used when npx skills add is unavailable)
 // ---------------------------------------------------------------------------
 
 function hasGit(): boolean {
@@ -86,7 +119,6 @@ function hasGit(): boolean {
   }
 }
 
-// Suppress git credential prompts — fail fast instead of hanging
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 
 function gitClone(repo: string, dest: string): void {
@@ -97,7 +129,8 @@ function gitClone(repo: string, dest: string): void {
   });
 }
 
-function fetchRepo(source: SkillSource): string {
+function fetchRepo(source: SkillSource): string | undefined {
+  const gitUrl = `https://github.com/${source.repo}.git`;
   if (existsSync(source.cache)) {
     try {
       execFileSync("git", ["pull", "--ff-only"], {
@@ -107,30 +140,22 @@ function fetchRepo(source: SkillSource): string {
         env: GIT_ENV,
       });
     } catch {
-      // Pull failed — use stale cache if valid
       const skillsDir = join(source.cache, source.skillsPath);
-      if (existsSync(skillsDir)) {
-        return skillsDir;
-      }
-      // Cache is broken — re-clone
+      if (existsSync(skillsDir)) return skillsDir;
       rmSync(source.cache, { recursive: true, force: true });
-      gitClone(source.repo, source.cache);
+      gitClone(gitUrl, source.cache);
     }
   } else {
     mkdirSync(dirname(source.cache), { recursive: true });
-    gitClone(source.repo, source.cache);
+    gitClone(gitUrl, source.cache);
   }
-  return join(source.cache, source.skillsPath);
+  const skillsDir = join(source.cache, source.skillsPath);
+  return existsSync(skillsDir) ? skillsDir : undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Install logic
-// ---------------------------------------------------------------------------
 
 interface InstalledSkill {
   name: string;
   source: string;
-  overwritten: boolean;
 }
 
 function installSkillsFromDir(
@@ -148,13 +173,47 @@ function installSkillsFromDir(
     if (!existsSync(skillFile)) continue;
 
     const destDir = join(targetDir, entry.name);
-    const overwritten = existsSync(destDir);
-    if (overwritten) rmSync(destDir, { recursive: true, force: true });
+    if (existsSync(destDir)) rmSync(destDir, { recursive: true, force: true });
     mkdirSync(destDir, { recursive: true });
     cpSync(join(sourceDir, entry.name), destDir, { recursive: true });
-    installed.push({ name: entry.name, source: sourceName, overwritten });
+    installed.push({ name: entry.name, source: sourceName });
   }
   return installed;
+}
+
+function fallbackInstall(targets: Target[]): {
+  count: number;
+  installed: InstalledSkill[];
+  skipped: string[];
+} {
+  const skipped: string[] = [];
+  const fetched: { source: SkillSource; skillsDir: string }[] = [];
+
+  for (const source of SOURCES) {
+    try {
+      const skillsDir = fetchRepo(source);
+      if (skillsDir) {
+        fetched.push({ source, skillsDir });
+      } else {
+        skipped.push(source.name);
+      }
+    } catch {
+      skipped.push(source.name);
+    }
+  }
+
+  const allInstalled: InstalledSkill[] = [];
+  let counted = false;
+  for (const target of targets) {
+    mkdirSync(target.dir, { recursive: true });
+    for (const { skillsDir, source } of fetched) {
+      const skills = installSkillsFromDir(skillsDir, target.dir, source.name);
+      if (!counted) allInstalled.push(...skills);
+    }
+    counted = true;
+  }
+
+  return { count: allInstalled.length, installed: allInstalled, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -166,46 +225,35 @@ export { TARGETS };
 export async function installAllSkills(
   targetNames?: string[],
 ): Promise<{ count: number; targets: string[]; skipped: string[] }> {
-  if (!hasGit()) return { count: 0, targets: [], skipped: SOURCES.map((s) => s.name) };
-
   const targets = targetNames
     ? TARGETS.filter((t) => targetNames.includes(t.flag))
     : TARGETS.filter((t) => t.defaultEnabled);
-  let totalCount = 0;
-  const skipped: string[] = [];
+  const agents = targets.map((t) => t.skillsAgent);
 
-  // Fetch sources
-  const fetched: { source: SkillSource; skillsDir: string }[] = [];
-  for (const source of SOURCES) {
-    try {
-      const skillsDir = fetchRepo(source);
-      if (existsSync(skillsDir)) {
-        fetched.push({ source, skillsDir });
-      } else {
+  // Try npx skills add first
+  if (hasNpx()) {
+    const skipped: string[] = [];
+    let count = 0;
+    for (const source of SOURCES) {
+      try {
+        runSkillsAdd(source.repo, agents, true);
+        count += 1; // count sources, not individual skills (we don't get that from npx)
+      } catch {
         skipped.push(source.name);
       }
-    } catch {
-      skipped.push(source.name);
     }
+    if (count > 0) {
+      return { count, targets: targets.map((t) => t.name), skipped };
+    }
+    // npx skills add failed for all sources — try fallback
   }
 
-  // Install to first target and count, then install to remaining targets
-  const [firstTarget, ...remainingTargets] = targets;
-  if (firstTarget) {
-    mkdirSync(firstTarget.dir, { recursive: true });
-    for (const { skillsDir, source } of fetched) {
-      const skills = installSkillsFromDir(skillsDir, firstTarget.dir, source.name);
-      totalCount += skills.length;
-    }
+  // Fallback: git clone + copy
+  if (!hasGit()) {
+    return { count: 0, targets: [], skipped: SOURCES.map((s) => s.name) };
   }
-  for (const target of remainingTargets) {
-    mkdirSync(target.dir, { recursive: true });
-    for (const { skillsDir, source } of fetched) {
-      installSkillsFromDir(skillsDir, target.dir, source.name);
-    }
-  }
-
-  return { count: totalCount, targets: targets.map((t) => t.name), skipped };
+  const result = fallbackInstall(targets);
+  return { count: result.count, targets: targets.map((t) => t.name), skipped: result.skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -223,84 +271,71 @@ function resolveTargets(args: Record<string, unknown>): Target[] {
 async function runInstall({ args }: { args: Record<string, unknown> }): Promise<void> {
   clack.intro(c.bold("hyperframes skills"));
 
+  const targets = resolveTargets(args);
+  const agents = targets.map((t) => t.skillsAgent);
+
+  // Try npx skills add
+  if (hasNpx()) {
+    const installed: string[] = [];
+    const skippedSources: string[] = [];
+
+    for (const source of SOURCES) {
+      const spinner = clack.spinner();
+      spinner.start(`Installing ${source.name} skills...`);
+      try {
+        runSkillsAdd(source.repo, agents, true);
+        installed.push(source.name);
+        spinner.stop(c.success(`${source.name} skills installed`));
+      } catch {
+        skippedSources.push(source.name);
+        spinner.stop(c.dim(`${source.name} skills skipped (unavailable)`));
+      }
+    }
+
+    console.log();
+    console.log(`   ${c.dim("Targets:")}  ${targets.map((t) => t.name).join(", ")}`);
+    if (skippedSources.length > 0) {
+      console.log(`   ${c.dim("Skipped:")}  ${skippedSources.join(", ")}`);
+    }
+    console.log();
+
+    if (installed.length > 0) {
+      clack.outro(c.success(`${installed.join(" + ")} skills installed.`));
+    } else {
+      clack.log.warn("npx skills add failed — trying fallback...");
+      // Fall through to git fallback below
+    }
+
+    if (installed.length > 0) return;
+  }
+
+  // Fallback: git clone + copy
   if (!hasGit()) {
-    clack.log.error(c.error("git is required to install skills. Install git and retry."));
+    clack.log.error(c.error("Neither npx nor git available. Install Node.js or git and retry."));
     clack.outro(c.warn("No skills installed."));
     return;
   }
 
-  const targets = resolveTargets(args);
+  clack.log.info(c.dim("Using git fallback..."));
 
-  // 1. Fetch all skill sources
-  const fetched: { source: SkillSource; skillsDir: string }[] = [];
+  const result = fallbackInstall(targets);
 
-  for (const source of SOURCES) {
-    const spinner = clack.spinner();
-    spinner.start(`Fetching ${source.name} skills...`);
-    try {
-      const skillsDir = fetchRepo(source);
-      if (existsSync(skillsDir)) {
-        fetched.push({ source, skillsDir });
-        spinner.stop(c.success(`${source.name} skills fetched`));
-      } else {
-        spinner.stop(c.warn(`${source.name}: no skills directory found`));
-      }
-    } catch {
-      spinner.stop(c.dim(`${source.name} skills skipped (repo not accessible)`));
-    }
-  }
-
-  // 2. Install to each target
-  const allInstalled: InstalledSkill[] = [];
-
-  let counted = false;
-  for (const target of targets) {
-    const spinner = clack.spinner();
-    spinner.start(`Installing to ${target.name}...`);
-
-    mkdirSync(target.dir, { recursive: true });
-
-    let count = 0;
-    for (const { source, skillsDir } of fetched) {
-      const skills = installSkillsFromDir(skillsDir, target.dir, source.name);
-      count += skills.length;
-      if (!counted) allInstalled.push(...skills);
-    }
-    counted = true;
-
-    spinner.stop(c.success(`${count} skills → ${target.name} ${c.dim(target.dir)}`));
-  }
-
-  // 3. Summary
   console.log();
   for (const source of SOURCES) {
-    const names = allInstalled.filter((s) => s.source === source.name).map((s) => s.name);
+    const names = result.installed.filter((s) => s.source === source.name).map((s) => s.name);
     if (names.length > 0) {
       const label = `${source.name}:`.padEnd(14);
       console.log(`   ${c.dim(label)} ${names.map((s) => c.accent(s)).join(", ")}`);
     }
   }
   console.log(`   ${c.dim("Targets:")}      ${targets.map((t) => t.name).join(", ")}`);
-  console.log();
-
-  const skippedSources = SOURCES.filter((s) => !fetched.some((f) => f.source.name === s.name));
-  if (skippedSources.length > 0) {
-    console.log(
-      `   ${c.dim("Skipped:")}      ${skippedSources.map((s) => s.name).join(", ")} (repo not accessible)`,
-    );
+  if (result.skipped.length > 0) {
+    console.log(`   ${c.dim("Skipped:")}      ${result.skipped.join(", ")}`);
   }
   console.log();
 
-  if (allInstalled.length > 0 && skippedSources.length > 0) {
-    const readySources = fetched.map((f) => f.source.name).join(", ");
-    const skippedNames = skippedSources.map((s) => s.name).join(", ");
-    clack.outro(
-      c.warn(
-        `${allInstalled.length} skills ready (${readySources}). Unavailable: ${skippedNames}.`,
-      ),
-    );
-  } else if (allInstalled.length > 0) {
-    clack.outro(c.success(`${allInstalled.length} skills ready.`));
+  if (result.count > 0) {
+    clack.outro(c.success(`${result.count} skills ready.`));
   } else {
     clack.outro(c.warn("No skills installed."));
   }
