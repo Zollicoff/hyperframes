@@ -172,6 +172,11 @@ function buildStreamingArgs(
   } else if (codec === "vp9") {
     args.push("-c:v", "libvpx-vp9", "-b:v", bitrate || "0", "-crf", String(quality));
     args.push("-deadline", preset === "ultrafast" ? "realtime" : "good");
+    args.push("-row-mt", "1");
+    if (pixelFormat === "yuva420p") {
+      args.push("-auto-alt-ref", "0");
+      args.push("-metadata:s:v:0", "alpha_mode=1");
+    }
   } else if (codec === "prores") {
     args.push("-c:v", "prores_ks", "-profile:v", preset, "-vendor", "apl0");
     return [...args, "-y", outputPath];

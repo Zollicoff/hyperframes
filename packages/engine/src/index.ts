@@ -88,6 +88,7 @@ export {
   applyFaststart,
   detectGpuEncoder,
   ENCODER_PRESETS,
+  getEncoderPreset,
   type GpuEncoder,
 } from "./services/chunkEncoder.js";
 export type { EncoderOptions, EncodeResult, MuxResult } from "./services/chunkEncoder.types.js";

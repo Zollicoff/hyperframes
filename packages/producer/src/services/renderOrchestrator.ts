@@ -35,7 +35,7 @@ import {
   encodeFramesChunkedConcat,
   muxVideoWithAudio,
   applyFaststart,
-  ENCODER_PRESETS,
+  getEncoderPreset,
   processCompositionAudio,
   type AudioElement,
   calculateOptimalWorkers,
@@ -90,6 +90,8 @@ export type RenderStatus =
 export interface RenderConfig {
   fps: 24 | 30 | 60;
   quality: "draft" | "standard" | "high";
+  /** Output container format. WebM uses VP9+alpha for transparency. */
+  format?: "mp4" | "webm";
   workers?: number;
   useGpu?: boolean;
   debug?: boolean;
@@ -357,12 +359,13 @@ export async function executeRenderJob(
       });
       assertNotAborted();
 
+      const isWebm = job.config.format === "webm";
       const captureOpts: CaptureOptions = {
         width,
         height,
         fps: job.config.fps,
-        format: "jpeg",
-        quality: 80,
+        format: isWebm ? "png" : "jpeg",
+        quality: isWebm ? undefined : 80,
       };
       probeSession = await createCaptureSession(
         fileServer.url,
@@ -593,18 +596,21 @@ export async function executeRenderJob(
     const framesDir = join(workDir, "captured-frames");
     if (!existsSync(framesDir)) mkdirSync(framesDir, { recursive: true });
 
+    const outputFormat = job.config.format ?? "mp4";
+    const isWebmRender = outputFormat === "webm";
     const captureOptions: CaptureOptions = {
       width,
       height,
       fps: job.config.fps,
-      format: "jpeg",
-      quality: job.config.quality === "draft" ? 80 : 95,
+      format: isWebmRender ? "png" : "jpeg",
+      quality: isWebmRender ? undefined : job.config.quality === "draft" ? 80 : 95,
     };
 
     const workerCount = calculateOptimalWorkers(job.totalFrames!, job.config.workers, cfg);
 
-    const videoOnlyPath = join(workDir, "video-only.mp4");
-    const preset = ENCODER_PRESETS[job.config.quality];
+    const videoExt = isWebmRender ? ".webm" : ".mp4";
+    const videoOnlyPath = join(workDir, `video-only${videoExt}`);
+    const preset = getEncoderPreset(job.config.quality, outputFormat);
 
     job.framesRendered = 0;
 
@@ -622,6 +628,7 @@ export async function executeRenderJob(
           codec: preset.codec,
           preset: preset.preset,
           quality: preset.quality,
+          pixelFormat: preset.pixelFormat,
           useGpu: job.config.useGpu,
           imageFormat: captureOptions.format || "jpeg",
         },
@@ -835,36 +842,32 @@ export async function executeRenderJob(
       const stage5Start = Date.now();
       updateJobStatus(job, "encoding", "Encoding video", 75, onProgress);
 
+      const frameExt = isWebmRender ? "png" : "jpg";
+      const framePattern = `frame_%06d.${frameExt}`;
+      const encoderOpts = {
+        fps: job.config.fps,
+        width,
+        height,
+        codec: preset.codec,
+        preset: preset.preset,
+        quality: preset.quality,
+        pixelFormat: preset.pixelFormat,
+        useGpu: job.config.useGpu,
+      };
       const encodeResult = enableChunkedEncode
         ? await encodeFramesChunkedConcat(
             framesDir,
-            "frame_%06d.jpg",
+            framePattern,
             videoOnlyPath,
-            {
-              fps: job.config.fps,
-              width,
-              height,
-              codec: preset.codec,
-              preset: preset.preset,
-              quality: preset.quality,
-              useGpu: job.config.useGpu,
-            },
+            encoderOpts,
             chunkedEncodeSize,
             abortSignal,
           )
         : await encodeFramesFromDir(
             framesDir,
-            "frame_%06d.jpg",
+            framePattern,
             videoOnlyPath,
-            {
-              fps: job.config.fps,
-              width,
-              height,
-              codec: preset.codec,
-              preset: preset.preset,
-              quality: preset.quality,
-              useGpu: job.config.useGpu,
-            },
+            encoderOpts,
             abortSignal,
           );
       assertNotAborted();
