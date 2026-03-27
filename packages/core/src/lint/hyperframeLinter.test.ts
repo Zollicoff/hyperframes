@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { lintHyperframeHtml } from "./hyperframeLinter.js";
+import { describe, it, expect, vi } from "vitest";
+import { lintHyperframeHtml, lintScriptUrls } from "./hyperframeLinter.js";
 
 describe("lintHyperframeHtml", () => {
   const validComposition = `
@@ -109,5 +109,112 @@ describe("lintHyperframeHtml", () => {
     const codes = result.findings.map((f) => `${f.code}|${f.message}`);
     const uniqueCodes = [...new Set(codes)];
     expect(codes.length).toBe(uniqueCodes.length);
+  });
+
+  it("detects timeline ID mismatch", () => {
+    const html = `<html><body>
+  <div data-composition-id="main" data-width="1920" data-height="1080">
+    <div data-composition-id="intro" data-start="0" data-duration="3"></div>
+  </div>
+  <script>
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = gsap.timeline({ paused: true });
+    window.__timelines["intro-anim"] = gsap.timeline({ paused: true });
+  </script>
+</body></html>`;
+    const result = lintHyperframeHtml(html);
+    const mismatch = result.findings.find((f) => f.code === "timeline_id_mismatch");
+    expect(mismatch).toBeDefined();
+    expect(mismatch?.message).toContain("intro-anim");
+  });
+
+  it("does not flag matching timeline IDs", () => {
+    const result = lintHyperframeHtml(validComposition);
+    const mismatch = result.findings.find((f) => f.code === "timeline_id_mismatch");
+    expect(mismatch).toBeUndefined();
+  });
+
+  it("reports error when timeline assignment has no init guard", () => {
+    const html = `<html><body>
+  <div data-composition-id="main" data-width="1920" data-height="1080"></div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    window.__timelines["main"] = tl;
+  </script>
+</body></html>`;
+    const result = lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "timeline_registry_missing_init");
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe("error");
+    expect(finding?.message).toContain("without initializing");
+  });
+
+  it("does not flag timeline assignment when init guard is present", () => {
+    const result = lintHyperframeHtml(validComposition);
+    const finding = result.findings.find((f) => f.code === "timeline_registry_missing_init");
+    expect(finding).toBeUndefined();
+  });
+});
+
+describe("lintScriptUrls", () => {
+  it("reports error for script URL returning non-2xx", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const html = `<html><body>
+  <div data-composition-id="main" data-width="1920" data-height="1080"></div>
+  <script src="https://unpkg.com/@hyperframe/player@latest/dist/player.js"></script>
+</body></html>`;
+    const findings = await lintScriptUrls(html);
+    const finding = findings.find((f) => f.code === "inaccessible_script_url");
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe("error");
+    expect(finding?.message).toContain("404");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("reports error for unreachable script URL", async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error("AbortError"));
+    vi.stubGlobal("fetch", mockFetch);
+
+    const html = `<html><body>
+  <div data-composition-id="main" data-width="1920" data-height="1080"></div>
+  <script src="https://example.invalid/nonexistent.js"></script>
+</body></html>`;
+    const findings = await lintScriptUrls(html);
+    const finding = findings.find((f) => f.code === "inaccessible_script_url");
+    expect(finding).toBeDefined();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("does not flag accessible script URLs", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const html = `<html><body>
+  <div data-composition-id="main" data-width="1920" data-height="1080"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+</body></html>`;
+    const findings = await lintScriptUrls(html);
+    expect(findings.length).toBe(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("skips inline scripts without src", async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+
+    const html = `<html><body>
+  <div data-composition-id="main" data-width="1920" data-height="1080"></div>
+  <script>console.log("inline")</script>
+</body></html>`;
+    const findings = await lintScriptUrls(html);
+    expect(findings.length).toBe(0);
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });
