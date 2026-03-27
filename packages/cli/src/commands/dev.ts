@@ -163,28 +163,20 @@ async function runDevMode(dir: string): Promise<void> {
     console.error(c.dim(err.message));
   });
 
-  function cleanup(): void {
-    if (createdSymlink && existsSync(symlinkPath)) {
+  if (createdSymlink) {
+    process.on("exit", () => {
       try {
-        unlinkSync(symlinkPath);
+        if (existsSync(symlinkPath)) unlinkSync(symlinkPath);
       } catch {
         /* ignore */
       }
-    }
+    });
   }
 
-  return new Promise<void>((resolvePromise) => {
-    // Temporarily ignore SIGINT on the parent so Ctrl+C only kills the child.
-    // The child gets SIGINT from the terminal's process group signal.
-    // When the child exits, we clean up and resolve back to the caller.
-    const noop = (): void => {};
-    process.on("SIGINT", noop);
-
-    child.on("close", () => {
-      process.removeListener("SIGINT", noop);
-      cleanup();
-      resolvePromise();
-    });
+  // Wait for child to exit. Ctrl+C sends SIGINT to the entire process group,
+  // so the child (Vite) receives it directly — no need to intercept or forward.
+  return new Promise<void>((resolve) => {
+    child.on("close", () => resolve());
   });
 }
 
@@ -263,20 +255,18 @@ async function runLocalStudioMode(dir: string): Promise<void> {
     console.error(c.dim(err.message));
   });
 
-  return new Promise<void>((resolvePromise) => {
-    const noop = (): void => {};
-    process.on("SIGINT", noop);
-    child.on("close", () => {
-      process.removeListener("SIGINT", noop);
-      if (createdSymlink && existsSync(symlinkPath)) {
-        try {
-          unlinkSync(symlinkPath);
-        } catch {
-          /* ignore */
-        }
+  if (createdSymlink) {
+    process.on("exit", () => {
+      try {
+        if (existsSync(symlinkPath)) unlinkSync(symlinkPath);
+      } catch {
+        /* ignore */
       }
-      resolvePromise();
     });
+  }
+
+  return new Promise<void>((resolve) => {
+    child.on("close", () => resolve());
   });
 }
 
@@ -288,22 +278,20 @@ async function runEmbeddedMode(dir: string, startPort: number): Promise<void> {
   const { createStudioServer } = await import("../server/studioServer.js");
 
   const projectName = basename(dir);
-  const { app, watcher } = createStudioServer({ projectDir: dir });
+  const { app } = createStudioServer({ projectDir: dir });
 
   clack.intro(c.bold("hyperframes dev"));
   const s = clack.spinner();
   s.start("Starting studio...");
 
-  let server: import("@hono/node-server").ServerType;
   let actualPort: number;
   try {
-    ({ server, port: actualPort } = await serveWithPortFallback(app.fetch, startPort));
+    ({ port: actualPort } = await serveWithPortFallback(app.fetch, startPort));
   } catch (err: unknown) {
     s.stop(c.error("Failed to start studio"));
     console.error();
     console.error(`  ${(err as Error).message}`);
     console.error();
-    watcher.close();
     process.exitCode = 1;
     return;
   }
@@ -322,11 +310,7 @@ async function runEmbeddedMode(dir: string, startPort: number): Promise<void> {
   console.log();
   import("open").then((mod) => mod.default(`${url}#project/${projectName}`)).catch(() => {});
 
-  return new Promise<void>((resolvePromise) => {
-    process.on("SIGINT", () => {
-      console.log();
-      watcher.close();
-      server.close(() => resolvePromise());
-    });
-  });
+  // Block until the process is killed. Ctrl+C (SIGINT) uses Node's default
+  // behavior — exit immediately. The OS reclaims the port and file handles.
+  return new Promise<void>(() => {});
 }
