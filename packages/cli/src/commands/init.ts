@@ -205,6 +205,22 @@ function getStaticTemplateDir(templateId: string): string {
   return existsSync(devPath) ? devPath : builtPath;
 }
 
+function getSharedTemplateDir(): string {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const devPath = resolve(dir, "..", "templates", "_shared");
+  const builtPath = resolve(dir, "templates", "_shared");
+  return existsSync(devPath) ? devPath : builtPath;
+}
+
+function getBundledSkillsDir(): string {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  // In dev: cli/src/commands/ → ../../../../skills = repo root skills/
+  // In built: cli/dist/ → skills = cli/dist/skills/
+  const devPath = resolve(dir, "..", "..", "..", "..", "skills");
+  const builtPath = resolve(dir, "skills");
+  return existsSync(devPath) ? devPath : builtPath;
+}
+
 function patchVideoSrc(
   dir: string,
   videoFilename: string | undefined,
@@ -410,6 +426,32 @@ function scaffoldProject(
     ),
     "utf-8",
   );
+
+  // Copy shared files (CLAUDE.md, AGENTS.md) for AI agent context
+  const sharedDir = getSharedTemplateDir();
+  if (existsSync(sharedDir)) {
+    for (const entry of readdirSync(sharedDir, { withFileTypes: true })) {
+      const src = join(sharedDir, entry.name);
+      const dest = resolve(destDir, entry.name);
+      if (entry.isFile() || entry.isSymbolicLink()) {
+        copyFileSync(src, dest);
+      }
+    }
+  }
+
+  // Copy project-level skills (.claude/skills/) for immediate availability
+  const skillsSrcDir = getBundledSkillsDir();
+  if (existsSync(skillsSrcDir)) {
+    const projectSkills = ["compose-video", "captions"];
+    for (const skill of projectSkills) {
+      const src = join(skillsSrcDir, skill);
+      if (existsSync(src)) {
+        const dest = resolve(destDir, ".claude", "skills", skill);
+        mkdirSync(dest, { recursive: true });
+        cpSync(src, dest, { recursive: true });
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -578,9 +620,28 @@ Examples:
       }
 
       console.log(c.success(`Created ${c.accent(name + "/")}`));
-      for (const f of readdirSync(destDir)) {
+      for (const f of readdirSync(destDir).filter((f) => !f.startsWith("."))) {
         console.log(`  ${c.accent(f)}`);
       }
+      console.log();
+      console.log("Next steps:");
+      console.log(
+        `  ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes dev")}      ${c.dim("# preview in studio")}`,
+      );
+      console.log(
+        `  ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes render")}   ${c.dim("# render to MP4")}`,
+      );
+      console.log(
+        `  ${c.accent("npx hyperframes docs")} ${c.dim("<topic>")}              ${c.dim("# learn composition syntax")}`,
+      );
+      console.log(
+        `    ${c.dim("topics: data-attributes, gsap, compositions, rendering, templates, troubleshooting")}`,
+      );
+      console.log();
+      console.log(
+        `  ${c.dim("AI skills installed — open this folder in your AI coding agent to get started.")}`,
+      );
+      console.log(`  ${c.dim("Full docs: hyperframes.heygen.com")}`);
       return;
     }
 

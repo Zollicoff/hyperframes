@@ -63,6 +63,40 @@ Preview instantly in the browser. Render to MP4 locally. Let AI agents compose v
 | [`@hyperframes/producer`](packages/producer) | Full rendering pipeline (capture + encode + audio mix)      |
 | [`@hyperframes/studio`](packages/studio)     | Browser-based composition editor UI                         |
 
+## AI Agent Skills
+
+HyperFrames ships skills that teach AI coding agents (Claude Code, Gemini CLI, Codex, Cursor) how to write correct compositions and GSAP animations. **Use these instead of writing from scratch — they encode framework-specific patterns that generic docs don't cover.**
+
+### Install via CLI (recommended)
+
+```bash
+# Install all skills (HyperFrames + GSAP) — runs automatically during `hyperframes init`
+npx hyperframes skills
+
+# Or install to a specific agent
+npx hyperframes skills --claude
+npx hyperframes skills --cursor
+```
+
+### Or via `npx skills add`
+
+```bash
+# HyperFrames skills (compose-video, captions)
+npx skills add heygen-com/hyperframes
+
+# GSAP skills (gsap-core, gsap-timeline, gsap-scrolltrigger, gsap-plugins, gsap-performance, gsap-utils, gsap-react, gsap-frameworks)
+npx skills add greensock/gsap-skills
+```
+
+### Installed Skills
+
+| Source                                               | Skills                                                                                                                                | What they teach                                                                                                     |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **HyperFrames**                                      | `compose-video`, `captions`                                                                                                           | HTML composition structure, `class="clip"` rules, `data-*` attributes, timeline registration, rendering constraints |
+| **[GSAP](https://github.com/greensock/gsap-skills)** | `gsap-core`, `gsap-timeline`, `gsap-performance`, `gsap-plugins`, `gsap-scrolltrigger`, `gsap-utils`, `gsap-react`, `gsap-frameworks` | Core API, timeline sequencing, ScrollTrigger, plugin usage, performance best practices                              |
+
+In Claude Code, invoke with `/compose-video`, `/captions`, `/gsap-core`, etc.
+
 ## Documentation
 
 Full docs at [hyperframes.heygen.com](https://hyperframes.heygen.com) — includes guides, concepts, API reference, and package documentation.
