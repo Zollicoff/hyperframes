@@ -306,9 +306,7 @@ async function runEmbeddedMode(dir: string, startPort: number): Promise<void> {
   console.log(`  ${c.dim("Project")}   ${c.accent(projectName)}`);
   console.log(`  ${c.dim("Studio")}    ${c.accent(url)}`);
   console.log();
-  console.log(
-    `  ${c.dim("Edit compositions with your AI agent — it has HyperFrames skills installed.")}`,
-  );
+  console.log(`  ${c.dim("Edit with your AI agent — it has HyperFrames skills installed.")}`);
   console.log(`  ${c.dim("Changes reload automatically in the studio.")}`);
   console.log();
   console.log(`  ${c.dim("Press Ctrl+C to stop")}`);

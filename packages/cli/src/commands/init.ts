@@ -648,7 +648,7 @@ Examples:
       console.log();
       console.log("Get started:");
       console.log();
-      console.log(`  ${c.accent("1.")} Open this project in your AI coding agent:`);
+      console.log(`  ${c.accent("1.")} Open this project with your AI coding agent:`);
       console.log(
         `     ${c.accent(`cd ${name}`)} then start ${c.accent("Claude Code")}, ${c.accent("Cursor")}, or your preferred agent`,
       );
@@ -860,7 +860,7 @@ Examples:
     clack.note(files.map((f) => c.accent(f)).join("\n"), c.success(`Created ${name}/`));
 
     clack.log.message(
-      `${c.dim("Tip:")} Open this project in ${c.accent("Claude Code")}, ${c.accent("Cursor")}, or your preferred AI agent.\n` +
+      `${c.dim("Tip:")} Open this project with ${c.accent("Claude Code")}, ${c.accent("Cursor")}, or your preferred AI agent.\n` +
         `${c.dim("     AI skills are installed — your agent knows how to create and edit compositions.")}`,
     );
 
