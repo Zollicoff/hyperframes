@@ -349,8 +349,16 @@ async function handleVideoFile(
         const transcode = await clack.select({
           message: "Transcode to H.264 MP4 for browser playback?",
           options: [
-            { value: "yes", label: "Yes, transcode", hint: "converts to H.264 MP4" },
-            { value: "no", label: "No, keep original", hint: "video won't play in browser" },
+            {
+              value: "yes",
+              label: "Yes, transcode",
+              hint: "converts to H.264 MP4",
+            },
+            {
+              value: "no",
+              label: "No, keep original",
+              hint: "video won't play in browser",
+            },
           ],
         });
         if (clack.isCancel(transcode)) {
@@ -460,7 +468,11 @@ async function nextStepLoop(destDir: string): Promise<void> {
     const next = await clack.select({
       message: "What do you want to do?",
       options: [
-        { value: "dev", label: "Open in studio", hint: "full editor with timeline" },
+        {
+          value: "dev",
+          label: "Open in studio",
+          hint: "full editor with timeline",
+        },
         { value: "render", label: "Render to MP4", hint: "export video now" },
         { value: "done", label: "Done for now" },
       ],
@@ -501,10 +513,10 @@ export default defineCommand({
     description: `Scaffold a new composition project
 
 Examples:
-  hyperframes init my-video --template blank --video video.mp4
-  hyperframes init podcast --template warm-grain --audio episode.mp3
-  hyperframes init my-video --template blank --skip-skills --skip-transcribe
-  hyperframes init --human-friendly                    # interactive mode`,
+  hyperframes init my-video                            # interactive wizard
+  hyperframes init my-video --template warm-grain      # pick a template
+  hyperframes init my-video --video video.mp4          # with video file
+  hyperframes init my-video --non-interactive           # skip prompts (CI/agents)`,
   },
   args: {
     name: { type: "positional", description: "Project name", required: false },
@@ -513,11 +525,28 @@ Examples:
       description: `Template (${ALL_TEMPLATE_IDS.join(", ")})`,
       alias: "t",
     },
-    video: { type: "string", description: "Path to a video file (MP4, WebM, MOV)", alias: "V" },
-    audio: { type: "string", description: "Path to an audio file (MP3, WAV, M4A)", alias: "a" },
-    "skip-skills": { type: "boolean", description: "Skip AI coding skills installation" },
-    "skip-transcribe": { type: "boolean", description: "Skip whisper transcription" },
-    "human-friendly": { type: "boolean", description: "Enable interactive terminal UI" },
+    video: {
+      type: "string",
+      description: "Path to a video file (MP4, WebM, MOV)",
+      alias: "V",
+    },
+    audio: {
+      type: "string",
+      description: "Path to an audio file (MP3, WAV, M4A)",
+      alias: "a",
+    },
+    "skip-skills": {
+      type: "boolean",
+      description: "Skip AI coding skills installation",
+    },
+    "skip-transcribe": {
+      type: "boolean",
+      description: "Skip whisper transcription",
+    },
+    "non-interactive": {
+      type: "boolean",
+      description: "Disable interactive prompts (for CI/agents)",
+    },
   },
   async run({ args }) {
     const templateFlag = args.template;
@@ -525,24 +554,20 @@ Examples:
     const audioFlag = args.audio;
     const skipSkills = args["skip-skills"] === true;
     const skipTranscribe = args["skip-transcribe"] === true;
-    const humanFriendly = args["human-friendly"] === true;
+    const nonInteractive = args["non-interactive"] === true;
+    const interactive = !nonInteractive && process.stdout.isTTY === true;
 
     // -----------------------------------------------------------------------
-    // Non-interactive mode (default) — all inputs from flags
+    // Non-interactive mode — all inputs from flags, defaults where missing
     // -----------------------------------------------------------------------
-    if (!humanFriendly) {
-      if (!templateFlag) {
-        console.error(c.error("Missing required flag: --template"));
-        console.error(`Available: ${ALL_TEMPLATE_IDS.join(", ")}`);
-        console.error(`\nExample: hyperframes init my-video --template blank --video video.mp4`);
-        process.exit(1);
-      }
-      if (!ALL_TEMPLATE_IDS.includes(templateFlag as TemplateId)) {
-        console.error(c.error(`Unknown template: ${templateFlag}`));
+    if (!interactive) {
+      const resolvedTemplate = templateFlag ?? "blank";
+      if (!ALL_TEMPLATE_IDS.includes(resolvedTemplate as TemplateId)) {
+        console.error(c.error(`Unknown template: ${resolvedTemplate}`));
         console.error(`Available: ${ALL_TEMPLATE_IDS.join(", ")}`);
         process.exit(1);
       }
-      const templateId = templateFlag as TemplateId;
+      const templateId = resolvedTemplate as TemplateId;
       const name = args.name ?? "my-video";
       const destDir = resolve(name);
 
@@ -702,7 +727,11 @@ Examples:
         options: [
           { value: "video", label: "Video", hint: "MP4, WebM, MOV" },
           { value: "audio", label: "Audio only", hint: "MP3, WAV, M4A" },
-          { value: "no", label: "No", hint: "Start with motion graphics or text" },
+          {
+            value: "no",
+            label: "No",
+            hint: "Start with motion graphics or text",
+          },
         ],
         initialValue: "no" as "video" | "audio" | "no",
       });
@@ -768,7 +797,9 @@ Examples:
           await ensureWhisper({
             onProgress: (msg) => spin.message(msg),
           });
-          await ensureModel(undefined, { onProgress: (msg) => spin.message(msg) });
+          await ensureModel(undefined, {
+            onProgress: (msg) => spin.message(msg),
+          });
 
           spin.message("Transcribing audio...");
           const { transcribe: runTranscribe } = await import("../whisper/transcribe.js");
@@ -786,23 +817,30 @@ Examples:
       }
     }
 
-    // 3. Pick template — default depends on media type
-    const defaultTemplate = isAudioOnly ? "warm-grain" : "blank";
-    const templateResult = await clack.select({
-      message: "Pick a template",
-      options: TEMPLATES.map((t) => ({
-        value: t.id,
-        label: t.label,
-        hint: t.hint,
-      })),
-      initialValue: defaultTemplate as TemplateId,
-    });
-    if (clack.isCancel(templateResult)) {
-      clack.cancel("Setup cancelled.");
-      process.exit(0);
+    // 3. Pick template — skip prompt if --template was provided
+    let templateId: TemplateId;
+    if (templateFlag && ALL_TEMPLATE_IDS.includes(templateFlag as TemplateId)) {
+      templateId = templateFlag as TemplateId;
+    } else {
+      if (templateFlag) {
+        clack.log.warn(`Unknown template "${templateFlag}" — pick from the list below`);
+      }
+      const defaultTemplate = isAudioOnly ? "warm-grain" : "blank";
+      const templateResult = await clack.select({
+        message: "Pick a template",
+        options: TEMPLATES.map((t) => ({
+          value: t.id,
+          label: t.label,
+          hint: t.hint,
+        })),
+        initialValue: defaultTemplate as TemplateId,
+      });
+      if (clack.isCancel(templateResult)) {
+        clack.cancel("Setup cancelled.");
+        process.exit(0);
+      }
+      templateId = templateResult;
     }
-
-    const templateId: TemplateId = templateResult;
 
     // 4. Copy template and patch
     scaffoldProject(destDir, name, templateId, localVideoName, videoDuration);
