@@ -33,8 +33,9 @@ Start the live preview studio in your browser:
 
 ```bash
 npx hyperframes dev
-# Server running at http://localhost:3000
-# Watching for changes...
+# Studio running at http://localhost:3002
+
+npx hyperframes dev --port 4567
 ```
 
 ### `render`
@@ -103,10 +104,11 @@ npx hyperframes docs
 
 ### `upgrade`
 
-Upgrade Hyperframes to the latest version:
+Check for updates and show upgrade instructions:
 
 ```bash
 npx hyperframes upgrade
+npx hyperframes upgrade --check --json  # machine-readable for agents
 ```
 
 ## Documentation
