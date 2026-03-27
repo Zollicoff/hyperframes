@@ -136,7 +136,7 @@ By default, Hyperframes uses **half of your CPU cores, capped at 4**:
 | 4-core laptop | 4 | 2 |
 | 2-core VM | 2 | 1 |
 
-This is intentionally conservative. Unlike tools that open multiple browser tabs in a single process, Hyperframes spawns separate Chrome processes per worker — the per-worker overhead is higher, so fewer workers avoids resource contention with FFmpeg encoding and your other applications.
+This is intentionally conservative. Each worker spawns its own Chrome process, so the per-worker overhead is significant. Fewer workers avoids resource contention with FFmpeg encoding and your other applications.
 
 ### Choosing a worker count
 

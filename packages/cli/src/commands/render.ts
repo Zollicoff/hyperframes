@@ -17,10 +17,9 @@ const VALID_FORMAT = new Set(["mp4", "webm"]);
  * Calculate a conservative default worker count for CLI use.
  *
  * Uses half of available CPU cores, capped at 4. Each worker spawns a
- * separate Chrome browser process (~256 MB RAM each), so we default lower
- * than a production server would. Remotion uses a similar heuristic
- * (50% of CPU threads) but can use tabs within a single browser — we need
- * separate processes, so the per-worker cost is higher.
+ * separate Chrome browser process (~256 MB RAM each), so we keep the
+ * default low to avoid resource contention with FFmpeg encoding and
+ * other applications on the user's machine.
  *
  *   2-core laptop  → 1 worker
  *   4-core laptop  → 2 workers
