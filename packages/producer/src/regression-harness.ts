@@ -333,8 +333,12 @@ function extractMonoPcm16(videoPath: string): Int16Array {
       return new Int16Array(0);
     }
     return new Int16Array(stdout.buffer, stdout.byteOffset, Math.floor(stdout.byteLength / 2));
-  } catch {
-    // No audio stream in the video (e.g., WebM without audio)
+  } catch (err) {
+    // No audio stream (e.g., WebM without audio) — log but don't fail
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("does not contain any stream")) {
+      logPretty(`Audio extraction warning: ${msg.slice(0, 200)}`, "⚠️");
+    }
     return new Int16Array(0);
   }
 }

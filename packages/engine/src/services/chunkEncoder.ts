@@ -6,7 +6,7 @@
  */
 
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import { type GpuEncoder, getCachedGpuEncoder, getGpuEncoderName } from "../utils/gpuEncoder.js";
@@ -414,8 +414,6 @@ export async function applyFaststart(
 ): Promise<MuxResult> {
   // faststart is MP4-only (moves moov atom to file start for streaming)
   if (outputPath.endsWith(".webm")) {
-    // For WebM, just copy the file as-is
-    const { copyFileSync } = await import("fs");
     if (inputPath !== outputPath) copyFileSync(inputPath, outputPath);
     return { success: true, outputPath, durationMs: 0 };
   }
