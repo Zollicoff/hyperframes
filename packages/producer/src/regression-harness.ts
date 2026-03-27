@@ -31,6 +31,7 @@ type TestMetadata = {
   maxAudioLagWindows: number;
   renderConfig: {
     fps: 24 | 30 | 60;
+    format?: "mp4" | "webm"; // Optional: defaults to "mp4"
     workers?: number; // Optional: auto-calculates if omitted
   };
 };
@@ -144,6 +145,9 @@ function validateMetadata(meta: unknown): TestMetadata {
   const rc = m.renderConfig as Record<string, unknown>;
   if (![24, 30, 60].includes(rc.fps as number)) {
     throw new Error("meta.json: 'renderConfig.fps' must be 24, 30, or 60");
+  }
+  if (rc.format !== undefined && rc.format !== "mp4" && rc.format !== "webm") {
+    throw new Error("meta.json: 'renderConfig.format' must be 'mp4' or 'webm' (or omit for mp4)");
   }
   if (rc.workers !== undefined) {
     if (typeof rc.workers !== "number" || rc.workers < 1) {
@@ -306,28 +310,33 @@ function psnrAtCheckpoint(
 }
 
 function extractMonoPcm16(videoPath: string): Int16Array {
-  const { stdout } = runFfmpeg(
-    [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-i",
-      videoPath,
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-f",
-      "s16le",
-      "-",
-    ],
-    `Audio extraction (${videoPath})`,
-  );
-  if (stdout.byteLength < 2) {
+  try {
+    const { stdout } = runFfmpeg(
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        videoPath,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "s16le",
+        "-",
+      ],
+      `Audio extraction (${videoPath})`,
+    );
+    if (stdout.byteLength < 2) {
+      return new Int16Array(0);
+    }
+    return new Int16Array(stdout.buffer, stdout.byteOffset, Math.floor(stdout.byteLength / 2));
+  } catch {
+    // No audio stream in the video (e.g., WebM without audio)
     return new Int16Array(0);
   }
-  return new Int16Array(stdout.buffer, stdout.byteOffset, Math.floor(stdout.byteLength / 2));
 }
 
 function buildRmsEnvelope(samples: Int16Array, windowSize = 2048, hopSize = 1024): number[] {
@@ -535,12 +544,14 @@ async function runTestSuite(
   mkdirSync(tempRoot, { recursive: true });
 
   const tempDownloadDir = join(tempRoot, "downloads");
-  const renderedOutputPath = join(tempRoot, "output.mp4");
+  const outputFormat = suite.meta.renderConfig.format ?? "mp4";
+  const videoExt = outputFormat === "webm" ? ".webm" : ".mp4";
+  const renderedOutputPath = join(tempRoot, `output${videoExt}`);
 
   // Snapshot files stored in test's output/ directory
   const snapshotDir = join(suite.dir, "output");
   const snapshotCompiledPath = join(snapshotDir, "compiled.html");
-  const snapshotVideoPath = join(snapshotDir, "output.mp4");
+  const snapshotVideoPath = join(snapshotDir, `output${videoExt}`);
 
   console.log(JSON.stringify({ event: "test_start", suite: suite.id, name: suite.meta.name }));
   logPretty(`Running test: ${suite.meta.name}`, "🧪");
@@ -626,6 +637,7 @@ async function runTestSuite(
     const job = createRenderJob({
       fps: suite.meta.renderConfig.fps,
       quality: "high", // Always use max quality for tests
+      format: outputFormat,
       workers: suite.meta.renderConfig.workers,
       useGpu: false,
       debug: false,
@@ -643,7 +655,11 @@ async function runTestSuite(
       }
       copyFileSync(renderedOutputPath, snapshotVideoPath);
       console.log(
-        JSON.stringify({ event: "snapshot_updated", suite: suite.id, file: "output/output.mp4" }),
+        JSON.stringify({
+          event: "snapshot_updated",
+          suite: suite.id,
+          file: `output/output${videoExt}`,
+        }),
       );
       result.visual = { passed: true, failedFrames: 0, checkpoints: [] };
       result.audio = { passed: true, correlation: 1, lagWindows: 0 };
