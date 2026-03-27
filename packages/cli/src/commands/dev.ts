@@ -9,28 +9,51 @@ import { c } from "../ui/colors.js";
 import { isDevMode } from "../utils/env.js";
 
 /**
- * Check if a port is available by trying to listen on it briefly.
+ * Try to start a server on the given port, auto-incrementing up to maxAttempts
+ * times if the port is already in use. Returns the running server and actual port.
+ *
+ * Uses createAdaptorServer (no auto-listen) so we control the bind and can
+ * retry on EADDRINUSE without TOCTOU races.
  */
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolvePromise) => {
-    const { createServer } = require("node:net") as typeof import("node:net");
-    const server = createServer();
-    server.once("error", () => resolvePromise(false));
-    server.once("listening", () => {
-      server.close(() => resolvePromise(true));
-    });
-    server.listen(port);
-  });
-}
+async function serveWithPortFallback(
+  fetch: Parameters<typeof import("@hono/node-server").serve>[0]["fetch"],
+  startPort: number,
+  maxAttempts = 10,
+): Promise<{ server: import("@hono/node-server").ServerType; port: number }> {
+  const { createAdaptorServer } = await import("@hono/node-server");
 
-/**
- * Find an available port starting from the given port.
- */
-async function findAvailablePort(startPort: number): Promise<number> {
-  for (let port = startPort; port < startPort + 10; port++) {
-    if (await isPortAvailable(port)) return port;
+  const server = createAdaptorServer({ fetch });
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const port = startPort + attempt;
+    try {
+      await new Promise<void>((resolveListener, rejectListener) => {
+        const onError = (err: NodeJS.ErrnoException): void => {
+          server.removeListener("listening", onListening);
+          rejectListener(err);
+        };
+        const onListening = (): void => {
+          server.removeListener("error", onError);
+          resolveListener();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port);
+      });
+      return { server, port };
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EADDRINUSE") {
+        continue; // try next port
+      }
+      throw err; // unexpected error — don't swallow it
+    }
   }
-  return startPort; // fallback — let the server fail with a clear error
+
+  const lastPort = startPort + maxAttempts - 1;
+  throw new Error(
+    `Ports ${startPort}–${lastPort} are all in use. Use --port to specify a different port.`,
+  );
 }
 
 export default defineCommand({
@@ -52,8 +75,7 @@ export default defineCommand({
       return runLocalStudioMode(dir);
     }
 
-    const port = await findAvailablePort(startPort);
-    return runEmbeddedMode(dir, port);
+    return runEmbeddedMode(dir, startPort);
   },
 });
 
@@ -262,9 +284,8 @@ async function runLocalStudioMode(dir: string): Promise<void> {
  * Embedded mode: serve the pre-built studio SPA with a standalone Hono server.
  * Works without any additional dependencies — the studio is bundled in dist/.
  */
-async function runEmbeddedMode(dir: string, port: number): Promise<void> {
+async function runEmbeddedMode(dir: string, startPort: number): Promise<void> {
   const { createStudioServer } = await import("../server/studioServer.js");
-  const { serve } = await import("@hono/node-server");
 
   const projectName = basename(dir);
   const { app, watcher } = createStudioServer({ projectDir: dir });
@@ -273,17 +294,33 @@ async function runEmbeddedMode(dir: string, port: number): Promise<void> {
   const s = clack.spinner();
   s.start("Starting studio...");
 
-  const server = serve({ fetch: app.fetch, port }, () => {
-    const url = `http://localhost:${port}`;
-    s.stop(c.success("Studio running"));
+  let server: import("@hono/node-server").ServerType;
+  let actualPort: number;
+  try {
+    ({ server, port: actualPort } = await serveWithPortFallback(app.fetch, startPort));
+  } catch (err: unknown) {
+    s.stop(c.error("Failed to start studio"));
+    console.error();
+    console.error(`  ${(err as Error).message}`);
+    console.error();
+    watcher.close();
+    process.exitCode = 1;
+    return;
+  }
+
+  const url = `http://localhost:${actualPort}`;
+  s.stop(c.success("Studio running"));
+  console.log();
+  if (actualPort !== startPort) {
+    console.log(`  ${c.warn(`Port ${startPort} is in use, using ${actualPort} instead`)}`);
     console.log();
-    console.log(`  ${c.dim("Project")}   ${c.accent(projectName)}`);
-    console.log(`  ${c.dim("Studio")}    ${c.accent(url)}`);
-    console.log();
-    console.log(`  ${c.dim("Press Ctrl+C to stop")}`);
-    console.log();
-    import("open").then((mod) => mod.default(`${url}#project/${projectName}`)).catch(() => {});
-  });
+  }
+  console.log(`  ${c.dim("Project")}   ${c.accent(projectName)}`);
+  console.log(`  ${c.dim("Studio")}    ${c.accent(url)}`);
+  console.log();
+  console.log(`  ${c.dim("Press Ctrl+C to stop")}`);
+  console.log();
+  import("open").then((mod) => mod.default(`${url}#project/${projectName}`)).catch(() => {});
 
   return new Promise<void>((resolvePromise) => {
     process.on("SIGINT", () => {
