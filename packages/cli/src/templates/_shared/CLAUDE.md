@@ -25,9 +25,21 @@ npx hyperframes lint         # validate compositions
 npx hyperframes docs <topic> # reference docs in terminal
 ```
 
-Available doc topics: `data-attributes`, `gsap`, `compositions`, `rendering`, `templates`, `troubleshooting`
+## Documentation
 
-Full docs: [hyperframes.heygen.com](https://hyperframes.heygen.com)
+**For quick reference**, use the local CLI docs command (no network required):
+
+```bash
+npx hyperframes docs <topic>
+```
+
+Topics: `data-attributes`, `gsap`, `compositions`, `rendering`, `templates`, `troubleshooting`
+
+**For full documentation**, discover pages via the machine-readable index — do NOT guess URLs:
+
+```
+https://hyperframes.heygen.com/llms.txt
+```
 
 ## Project Structure
 
