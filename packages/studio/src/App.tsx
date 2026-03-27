@@ -213,15 +213,21 @@ export function StudioApp() {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectIdRef = useRef(projectId);
 
-  // Listen for external file changes (user editing HTML outside the editor)
+  // Listen for external file changes (user editing HTML outside the editor).
+  // In dev: use Vite HMR. In embedded/production: use SSE from /api/events.
   useEffect(() => {
-    if (!import.meta.hot) return;
     const handler = () => {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = setTimeout(() => setRefreshKey((k) => k + 1), 400);
     };
-    import.meta.hot.on("hf:file-change", handler);
-    return () => import.meta.hot?.off?.("hf:file-change", handler);
+    if (import.meta.hot) {
+      import.meta.hot.on("hf:file-change", handler);
+      return () => import.meta.hot?.off?.("hf:file-change", handler);
+    }
+    // SSE fallback for embedded studio server
+    const es = new EventSource("/api/events");
+    es.addEventListener("file-change", handler);
+    return () => es.close();
   }, []);
   projectIdRef.current = projectId;
 
