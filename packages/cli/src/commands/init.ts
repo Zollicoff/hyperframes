@@ -646,23 +646,22 @@ Examples:
         console.log(`  ${c.accent(f)}`);
       }
       console.log();
-      console.log("Next steps:");
+      console.log("Get started:");
+      console.log();
+      console.log(`  ${c.accent("1.")} Open this project in your AI coding agent:`);
       console.log(
-        `  ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes dev")}      ${c.dim("# preview in studio")}`,
+        `     ${c.accent(`cd ${name}`)} then start ${c.accent("Claude Code")}, ${c.accent("Cursor")}, or your preferred agent`,
       );
       console.log(
-        `  ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes render")}   ${c.dim("# render to MP4")}`,
-      );
-      console.log(
-        `  ${c.accent("npx hyperframes docs")} ${c.dim("<topic>")}              ${c.dim("# learn composition syntax")}`,
-      );
-      console.log(
-        `    ${c.dim("topics: data-attributes, gsap, compositions, rendering, templates, troubleshooting")}`,
+        `     ${c.dim("AI skills are installed — your agent knows how to create and edit compositions.")}`,
       );
       console.log();
-      console.log(
-        `  ${c.dim("AI skills installed — open this folder in your AI coding agent to get started.")}`,
-      );
+      console.log(`  ${c.accent("2.")} Preview in the browser:`);
+      console.log(`     ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes dev")}`);
+      console.log();
+      console.log(`  ${c.accent("3.")} Render to MP4 when ready:`);
+      console.log(`     ${c.accent(`cd ${name}`)} && ${c.accent("npx hyperframes render")}`);
+      console.log();
       console.log(`  ${c.dim("Full docs: hyperframes.heygen.com")}`);
       return;
     }
@@ -859,6 +858,11 @@ Examples:
 
     const files = readdirSync(destDir);
     clack.note(files.map((f) => c.accent(f)).join("\n"), c.success(`Created ${name}/`));
+
+    clack.log.message(
+      `${c.dim("Tip:")} Open this project in ${c.accent("Claude Code")}, ${c.accent("Cursor")}, or your preferred AI agent.\n` +
+        `${c.dim("     AI skills are installed — your agent knows how to create and edit compositions.")}`,
+    );
 
     await nextStepLoop(destDir);
   },
