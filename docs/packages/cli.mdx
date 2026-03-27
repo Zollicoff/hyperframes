@@ -47,7 +47,7 @@ Add `--human-friendly` to any command to enable the interactive terminal UI with
     # Fully non-interactive — all inputs from flags
     npx hyperframes init my-video --template blank --video video.mp4
     npx hyperframes render --output output.mp4 --fps 30 --quality standard
-    npx hyperframes upgrade --check
+    npx hyperframes upgrade --check --json
     ```
   </Tab>
   <Tab title="Human mode">
@@ -58,6 +58,35 @@ Add `--human-friendly` to any command to enable the interactive terminal UI with
     ```
   </Tab>
 </Tabs>
+
+### JSON Output and `_meta` Envelope
+
+All commands that support `--json` wrap their output with a `_meta` field containing version check info:
+
+```json
+{
+  "name": "my-video",
+  "duration": 10.5,
+  "_meta": {
+    "version": "0.1.4",
+    "latestVersion": "0.1.5",
+    "updateAvailable": true
+  }
+}
+```
+
+This allows agents to detect outdated versions from any command's output without running a separate upgrade check. The version data comes from a 24-hour cache — no network request is made during `--json` output.
+
+### Passive Update Notices
+
+The CLI checks npm for newer versions in the background (cached 24 hours). If an update is available, a notice appears on stderr after command completion:
+
+```
+  Update available: 0.1.4 → 0.1.5
+  Run: npx hyperframes@latest
+```
+
+This is suppressed in CI environments, non-TTY shells, and when `HYPERFRAMES_NO_UPDATE_CHECK=1` is set.
 
 ## Getting Started
 
@@ -163,9 +192,20 @@ Add `--human-friendly` to any command to enable the interactive terminal UI with
 
     ```bash
     npx hyperframes dev [dir]
+    npx hyperframes dev --port 4567
     ```
 
-    Opens your composition in the Hyperframes Studio with live preview. Edits to `index.html` and any referenced sub-compositions are reflected instantly. The preview uses the same Hyperframes runtime as production rendering, so what you see is what you get.
+    | Flag | Description |
+    |------|-------------|
+    | `--port` | Port to run the dev server on (default: 3002) |
+
+    Opens your composition in the Hyperframes Studio with live preview. Edits to `index.html` and any referenced sub-compositions are reflected automatically. The preview uses the same Hyperframes runtime as production rendering, so what you see is what you get.
+
+    The dev server runs in three modes, auto-detected:
+
+    1. **Embedded mode** (default for `npx`) — runs a standalone server with the studio bundled in the CLI. Zero extra dependencies.
+    2. **Local studio mode** — if `@hyperframes/studio` is installed in your project's `node_modules`, spawns Vite with full HMR for faster iteration.
+    3. **Monorepo mode** — if running from the Hyperframes source repo, spawns the studio dev server directly.
 
     ### `lint`
 
@@ -242,18 +282,20 @@ Add `--human-friendly` to any command to enable the interactive terminal UI with
     npx hyperframes doctor
     ```
     ```
-    Checking environment...
-      ✓ Node.js    v22.x
-      ✓ FFmpeg      7.x
-      ✓ FFprobe     7.x
-      ✓ Chrome      (bundled)
-      ✓ Docker      24.x
-      ✓ Docker      running
+    hyperframes doctor
 
-    All checks passed.
+      ✓ Version          0.1.4 (latest)
+      ✓ Node.js          v22.x (linux x64)
+      ✓ FFmpeg            7.x
+      ✓ FFprobe           7.x
+      ✓ Chrome            (system or cached)
+      ✓ Docker            24.x
+      ✓ Docker running    Running
+
+      ◇  All checks passed
     ```
 
-    Verifies Node.js version, FFmpeg, FFprobe, Chrome, and Docker availability.
+    Verifies CLI version, Node.js, FFmpeg, FFprobe, Chrome, and Docker availability. If a newer CLI version is available, the version row shows an upgrade hint.
 
     ### `info`
 
@@ -275,16 +317,27 @@ Add `--human-friendly` to any command to enable the interactive terminal UI with
 
     ```bash
     npx hyperframes upgrade
-    npx hyperframes upgrade --check    # check and exit (no prompt)
-    npx hyperframes upgrade --yes      # show upgrade commands without prompting
+    npx hyperframes upgrade --check         # check and exit (no prompt)
+    npx hyperframes upgrade --check --json  # machine-readable for agents
+    npx hyperframes upgrade --yes           # show upgrade commands without prompting
     ```
 
     | Flag | Description |
     |------|-------------|
     | `--check` | Check for updates and exit (no prompt, agent-friendly) |
+    | `--json` | Output as JSON (includes `_meta` envelope) |
     | `--yes, -y` | Show upgrade commands without prompting |
 
-    Compares your installed version against the latest on npm and provides upgrade commands.
+    Compares your installed version against the latest on npm. With `--check --json`, returns:
+
+    ```json
+    {
+      "current": "0.1.4",
+      "latest": "0.1.5",
+      "updateAvailable": true,
+      "_meta": { "version": "0.1.4", "latestVersion": "0.1.5", "updateAvailable": true }
+    }
+    ```
 
     ### `browser`
 
