@@ -301,6 +301,10 @@ export async function executeRenderJob(
   const perfStages: Record<string, number> = {};
   const perfOutputPath = join(workDir, "perf-summary.json");
   const cfg = job.config.producerConfig ?? resolveConfig();
+  // WebM/transparency requires screenshot mode — beginFrame doesn't support alpha channel
+  if (job.config.format === "webm") {
+    cfg.forceScreenshot = true;
+  }
   const enableChunkedEncode = cfg.enableChunkedEncode;
   const chunkedEncodeSize = cfg.chunkSizeFrames;
   const enableStreamingEncode = cfg.enableStreamingEncode;

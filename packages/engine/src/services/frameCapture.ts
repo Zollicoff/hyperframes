@@ -108,9 +108,10 @@ export async function createCaptureSession(
   await page.setViewport(viewport);
 
   // For PNG capture (used by WebM/transparency), make the page background transparent
-  // so Chrome's screenshot captures alpha channel data.
+  // so Chrome's screenshot captures alpha channel data. Must use the same CDP session
+  // that the screenshot service uses (getCdpSession caches per page).
   if (options.format === "png") {
-    const cdp = await page.createCDPSession();
+    const cdp = await getCdpSession(page);
     await cdp.send("Emulation.setDefaultBackgroundColorOverride", {
       color: { r: 0, g: 0, b: 0, a: 0 },
     });
