@@ -3,7 +3,7 @@ title: Testing Local CLI Changes
 description: How to test unreleased CLI changes outside the monorepo using your local build.
 ---
 
-When you modify the CLI or any package it bundles (core, engine, producer, studio), you need to test those changes against real projects _outside_ the monorepo — the same way an end user would run `hyperframes dev`.
+When you modify the CLI or any package it bundles (core, engine, producer, studio), you need to test those changes against real projects _outside_ the monorepo — the same way an end user would run `hyperframes preview`.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ Now use `hyperframes` normally in any directory:
 
 ```bash
 cd ~/my-video-project
-hyperframes dev .
+hyperframes preview .
 ```
 
 **After every `pnpm build`** the linked binary is already up to date — no re-linking needed.
@@ -58,7 +58,7 @@ If you don't want to touch your global `$PATH`, add a shell alias or call `node`
 alias hyperframes="node /path/to/hyperframes-oss/packages/cli/dist/cli.js"
 
 # Or invoke directly
-node /path/to/hyperframes-oss/packages/cli/dist/cli.js dev .
+node /path/to/hyperframes-oss/packages/cli/dist/cli.js preview .
 ```
 
 Replace `/path/to/hyperframes-oss` with your actual monorepo path.
@@ -76,7 +76,7 @@ npm pack
 mkdir /tmp/pack-test && cd /tmp/pack-test
 npx /path/to/hyperframes-oss/packages/cli/hyperframes-<version>.tgz init my-video
 cd my-video
-npx /path/to/hyperframes-oss/packages/cli/hyperframes-<version>.tgz dev .
+npx /path/to/hyperframes-oss/packages/cli/hyperframes-<version>.tgz preview .
 ```
 
 ## Testing the fix branches
@@ -86,7 +86,7 @@ When validating a specific bug fix, extract one of the test project archives and
 ```bash
 # Example: testing audio-after-seek fix
 unzip golden-lyric-video.zip && cd golden-lyric-video
-hyperframes dev .
+hyperframes preview .
 # 1. Press Play — confirm audio plays
 # 2. Drag the timeline scrubber to a different position
 # 3. Press Play again — audio should resume from the seeked position
@@ -129,8 +129,8 @@ cd packages/cli && pnpm link --global
 
 **Port already in use**
 
-`hyperframes dev` defaults to port 3002 and auto-increments if it's taken. Pass `--port` to use a specific port:
+`hyperframes preview` defaults to port 3002 and auto-increments if it's taken. Pass `--port` to use a specific port:
 
 ```bash
-hyperframes dev . --port 4000
+hyperframes preview . --port 4000
 ```
