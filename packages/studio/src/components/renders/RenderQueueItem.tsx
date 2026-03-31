@@ -4,6 +4,7 @@ import type { RenderJob } from "./useRenderQueue";
 
 interface RenderQueueItemProps {
   job: RenderJob;
+  projectId: string;
   onDelete: () => void;
 }
 
@@ -24,26 +25,30 @@ function formatTimeAgo(timestamp: number): string {
 
 export const RenderQueueItem = memo(function RenderQueueItem({
   job,
+  projectId,
   onDelete,
 }: RenderQueueItemProps) {
   const [hovered, setHovered] = useState(false);
 
+  // Direct file URL — serves from disk, survives server restarts
+  const fileSrc = `/api/projects/${projectId}/renders/file/${job.filename}`;
+
   const handleOpen = useCallback(() => {
-    window.open(`/api/render/${job.id}/view`, "_blank");
-  }, [job.id]);
+    window.open(fileSrc, "_blank");
+  }, [fileSrc]);
 
   const handleDownload = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
       const a = document.createElement("a");
-      a.href = `/api/render/${job.id}/download`;
+      a.href = fileSrc;
       a.download = job.filename;
       a.click();
     },
-    [job.id, job.filename],
+    [fileSrc, job.filename],
   );
 
-  const viewSrc = `/api/render/${job.id}/view`;
+  const viewSrc = fileSrc;
   const isComplete = job.status === "complete";
 
   return (
@@ -85,7 +90,7 @@ export const RenderQueueItem = memo(function RenderQueueItem({
           )}
           {job.status === "rendering" && (
             <div className="w-full h-full flex items-center justify-center">
-              <div className="w-2 h-2 rounded-full bg-[#3CE6AC] animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-studio-accent animate-pulse" />
             </div>
           )}
           {job.status === "failed" && (
@@ -117,11 +122,11 @@ export const RenderQueueItem = memo(function RenderQueueItem({
             <div className="mt-1">
               <div className="flex items-center justify-between mb-0.5">
                 <span className="text-[9px] text-neutral-500">{job.stage || "Rendering"}</span>
-                <span className="text-[9px] font-mono text-[#3CE6AC]">{job.progress}%</span>
+                <span className="text-[9px] font-mono text-studio-accent">{job.progress}%</span>
               </div>
               <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-[#3CE6AC] rounded-full transition-all duration-300"
+                  className="h-full bg-studio-accent rounded-full transition-all duration-300"
                   style={{ width: `${job.progress}%` }}
                 />
               </div>

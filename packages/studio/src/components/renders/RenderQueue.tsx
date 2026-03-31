@@ -1,9 +1,10 @@
-import { memo, useState, useRef } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import { RenderQueueItem } from "./RenderQueueItem";
 import type { RenderJob } from "./useRenderQueue";
 
 interface RenderQueueProps {
   jobs: RenderJob[];
+  projectId: string;
   onDelete: (jobId: string) => void;
   onClearCompleted: () => void;
   onStartRender: (format: "mp4" | "webm") => void;
@@ -33,7 +34,7 @@ function FormatExportButton({
       <button
         onClick={() => onStartRender(format)}
         disabled={isRendering}
-        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-r bg-[#3CE6AC] text-[#09090B] hover:brightness-110 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-r bg-studio-accent text-[#09090B] hover:brightness-110 transition-colors disabled:opacity-50"
       >
         {isRendering ? "Rendering..." : "Export"}
       </button>
@@ -43,21 +44,21 @@ function FormatExportButton({
 
 export const RenderQueue = memo(function RenderQueue({
   jobs,
+  projectId,
   onDelete,
   onClearCompleted,
   onStartRender,
   isRendering,
 }: RenderQueueProps) {
   const listRef = useRef<HTMLDivElement>(null);
-  const prevCount = useRef(jobs.length);
 
-  // Auto-scroll to bottom when new jobs are added (adjust during render)
-  if (jobs.length > prevCount.current && listRef.current) {
-    queueMicrotask(() => {
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-    });
-  }
-  prevCount.current = jobs.length;
+  // Auto-scroll to bottom when new jobs are added.
+  // Runs in an effect to avoid side effects during the render phase.
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [jobs.length]);
 
   const completedCount = jobs.filter((j) => j.status !== "rendering").length;
 
@@ -111,7 +112,12 @@ export const RenderQueue = memo(function RenderQueue({
           </div>
         ) : (
           jobs.map((job) => (
-            <RenderQueueItem key={job.id} job={job} onDelete={() => onDelete(job.id)} />
+            <RenderQueueItem
+              key={job.id}
+              job={job}
+              projectId={projectId}
+              onDelete={() => onDelete(job.id)}
+            />
           ))
         )}
       </div>
