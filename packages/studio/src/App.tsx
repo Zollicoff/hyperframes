@@ -24,8 +24,7 @@ export function StudioApp() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [resolving, setResolving] = useState(true);
 
-  // eslint-disable-next-line no-restricted-syntax
-  useEffect(() => {
+  useMountEffect(() => {
     const hashMatch = window.location.hash.match(/^#project\/([^/]+)/);
     if (hashMatch) {
       setProjectId(hashMatch[1]);
@@ -44,7 +43,7 @@ export function StudioApp() {
       })
       .catch(() => {})
       .finally(() => setResolving(false));
-  }, []);
+  });
 
   const [editingFile, setEditingFile] = useState<EditingFile | null>(null);
   const [activeCompPath, setActiveCompPath] = useState<string | null>(null);
@@ -246,6 +245,129 @@ export function StudioApp() {
     }, 600);
   }, []);
 
+  // ── File Management Handlers ──
+
+  const refreshFileTree = useCallback(async () => {
+    const pid = projectIdRef.current;
+    if (!pid) return;
+    const res = await fetch(`/api/projects/${pid}`);
+    const data = await res.json();
+    if (data.files) setFileTree(data.files);
+  }, []);
+
+  const handleCreateFile = useCallback(
+    async (path: string) => {
+      const pid = projectIdRef.current;
+      if (!pid) return;
+      let content = "";
+      if (path.endsWith(".html")) {
+        content =
+          '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n</head>\n<body>\n\n</body>\n</html>\n';
+      }
+      const res = await fetch(`/api/projects/${pid}/files/${encodeURIComponent(path)}`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: content,
+      });
+      if (res.ok) {
+        await refreshFileTree();
+        handleFileSelect(path);
+      } else {
+        const err = await res.json().catch(() => ({ error: "unknown" }));
+        console.error(`Create file failed: ${err.error}`);
+      }
+    },
+    [refreshFileTree, handleFileSelect],
+  );
+
+  const handleCreateFolder = useCallback(
+    async (path: string) => {
+      const pid = projectIdRef.current;
+      if (!pid) return;
+      // Create a .gitkeep inside the folder so it appears in the tree
+      const res = await fetch(
+        `/api/projects/${pid}/files/${encodeURIComponent(path + "/.gitkeep")}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: "",
+        },
+      );
+      if (res.ok) {
+        await refreshFileTree();
+      } else {
+        const err = await res.json().catch(() => ({ error: "unknown" }));
+        console.error(`Create folder failed: ${err.error}`);
+      }
+    },
+    [refreshFileTree],
+  );
+
+  const handleDeleteFile = useCallback(
+    async (path: string) => {
+      const pid = projectIdRef.current;
+      if (!pid) return;
+      const res = await fetch(`/api/projects/${pid}/files/${encodeURIComponent(path)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        if (editingPathRef.current === path) setEditingFile(null);
+        await refreshFileTree();
+      } else {
+        const err = await res.json().catch(() => ({ error: "unknown" }));
+        console.error(`Delete failed: ${err.error}`);
+      }
+    },
+    [refreshFileTree],
+  );
+
+  const handleRenameFile = useCallback(
+    async (oldPath: string, newPath: string) => {
+      const pid = projectIdRef.current;
+      if (!pid) return;
+      const res = await fetch(`/api/projects/${pid}/files/${encodeURIComponent(oldPath)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPath }),
+      });
+      if (res.ok) {
+        if (editingPathRef.current === oldPath) {
+          handleFileSelect(newPath);
+        }
+        await refreshFileTree();
+        // Refresh preview — references in compositions may have been updated
+        setRefreshKey((k) => k + 1);
+      } else {
+        const err = await res.json().catch(() => ({ error: "unknown" }));
+        console.error(`Rename failed: ${err.error}`);
+      }
+    },
+    [refreshFileTree, handleFileSelect],
+  );
+
+  const handleDuplicateFile = useCallback(
+    async (path: string) => {
+      const pid = projectIdRef.current;
+      if (!pid) return;
+      const res = await fetch(`/api/projects/${pid}/duplicate-file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await refreshFileTree();
+        if (data.path) handleFileSelect(data.path);
+      } else {
+        const err = await res.json().catch(() => ({ error: "unknown" }));
+        console.error(`Duplicate failed: ${err.error}`);
+      }
+    },
+    [refreshFileTree, handleFileSelect],
+  );
+
+  const handleMoveFile = handleRenameFile;
+
   const handleLint = useCallback(async () => {
     const pid = projectIdRef.current;
     if (!pid) return;
@@ -433,6 +555,12 @@ export function StudioApp() {
             fileTree={fileTree}
             editingFile={editingFile}
             onSelectFile={handleFileSelect}
+            onCreateFile={handleCreateFile}
+            onCreateFolder={handleCreateFolder}
+            onDeleteFile={handleDeleteFile}
+            onRenameFile={handleRenameFile}
+            onDuplicateFile={handleDuplicateFile}
+            onMoveFile={handleMoveFile}
             codeChildren={
               editingFile ? (
                 isMediaFile(editingFile.path) ? (
