@@ -39,6 +39,7 @@ export interface FileTreeProps {
   onRenameFile?: (oldPath: string, newPath: string) => void;
   onDuplicateFile?: (path: string) => void;
   onMoveFile?: (oldPath: string, newPath: string) => void;
+  onImportFiles?: (files: FileList, dir?: string) => void;
 }
 
 interface TreeNode {
@@ -475,6 +476,8 @@ function TreeFolder({
   return (
     <>
       <button
+        draggable
+        onDragStart={(e) => onDragStart(e, node.fullPath)}
         onClick={toggle}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -638,6 +641,7 @@ export const FileTree = memo(function FileTree({
   onRenameFile,
   onDuplicateFile,
   onMoveFile,
+  onImportFiles,
 }: FileTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
   const children = useMemo(() => sortChildren(tree.children), [tree]);
@@ -770,7 +774,15 @@ export const FileTree = memo(function FileTree({
   }, []);
 
   const handleDrop = useCallback(
-    (_e: React.DragEvent, folderPath: string) => {
+    (e: React.DragEvent, folderPath: string) => {
+      // External files from desktop — import into the target folder
+      if (e.dataTransfer.files.length > 0 && !dragSourceRef.current) {
+        e.preventDefault();
+        onImportFiles?.(e.dataTransfer.files, folderPath || undefined);
+        setDragOverFolder(null);
+        return;
+      }
+
       const sourcePath = dragSourceRef.current;
       if (!sourcePath || !onMoveFile) {
         setDragOverFolder(null);
@@ -788,7 +800,7 @@ export const FileTree = memo(function FileTree({
       setDragOverFolder(null);
       dragSourceRef.current = null;
     },
-    [onMoveFile],
+    [onMoveFile, onImportFiles],
   );
 
   const handleDragLeave = useCallback(() => {
@@ -836,7 +848,26 @@ export const FileTree = memo(function FileTree({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto py-1" onContextMenu={handleRootContextMenu}>
+      <div
+        className={`flex-1 overflow-y-auto py-1 transition-colors ${
+          dragOverFolder === ""
+            ? "bg-[#3CE6AC]/5 outline outline-1 outline-[#3CE6AC]/30 -outline-offset-1"
+            : ""
+        }`}
+        onContextMenu={handleRootContextMenu}
+        onDragOver={(e) => {
+          e.preventDefault();
+          // Show root highlight when dragging over the background (not a child folder)
+          if (e.target === e.currentTarget) setDragOverFolder("");
+        }}
+        onDragLeave={(e) => {
+          if (e.target === e.currentTarget) setDragOverFolder(null);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          handleDrop(e, "");
+        }}
+      >
         {/* Root-level inline input for new file/folder */}
         {inlineInput &&
           (inlineInput.mode === "new-file" || inlineInput.mode === "new-folder") &&

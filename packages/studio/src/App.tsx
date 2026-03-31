@@ -56,7 +56,10 @@ export function StudioApp() {
   const [rightWidth, setRightWidth] = useState(400);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(true);
+  const [globalDragOver, setGlobalDragOver] = useState(false);
+  const [uploadToast, setUploadToast] = useState<string | null>(null);
   const [timelineVisible, setTimelineVisible] = useState(false);
+  const dragCounterRef = useRef(0);
   const panelDragRef = useRef<{
     side: "left" | "right";
     startX: number;
@@ -368,6 +371,46 @@ export function StudioApp() {
 
   const handleMoveFile = handleRenameFile;
 
+  const showUploadToast = useCallback((msg: string) => {
+    setUploadToast(msg);
+    setTimeout(() => setUploadToast(null), 4000);
+  }, []);
+
+  const handleImportFiles = useCallback(
+    async (files: FileList, dir?: string) => {
+      const pid = projectIdRef.current;
+      if (!pid || files.length === 0) return;
+
+      const formData = new FormData();
+      for (const file of Array.from(files)) {
+        formData.append("file", file);
+      }
+
+      const qs = dir ? `?dir=${encodeURIComponent(dir)}` : "";
+      try {
+        const res = await fetch(`/api/projects/${pid}/upload${qs}`, {
+          method: "POST",
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.skipped?.length) {
+            showUploadToast(`Skipped (too large): ${data.skipped.join(", ")}`);
+          }
+          await refreshFileTree();
+          setRefreshKey((k) => k + 1);
+        } else if (res.status === 413) {
+          showUploadToast("Upload rejected: payload too large");
+        } else {
+          showUploadToast(`Upload failed (${res.status})`);
+        }
+      } catch {
+        showUploadToast("Upload failed: network error");
+      }
+    },
+    [refreshFileTree, showUploadToast],
+  );
+
   const handleLint = useCallback(async () => {
     const pid = projectIdRef.current;
     if (!pid) return;
@@ -447,7 +490,31 @@ export function StudioApp() {
   // At this point projectId is guaranteed non-null (narrowed by the guard above)
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-neutral-950">
+    <div
+      className="flex flex-col h-screen w-screen bg-neutral-950 relative"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+      }}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        dragCounterRef.current++;
+        setGlobalDragOver(true);
+      }}
+      onDragLeave={() => {
+        dragCounterRef.current--;
+        if (dragCounterRef.current === 0) setGlobalDragOver(false);
+      }}
+      onDrop={(e) => {
+        dragCounterRef.current = 0;
+        setGlobalDragOver(false);
+        // Skip if a child (e.g. AssetsTab) already handled the drop
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        if (e.dataTransfer.files.length) handleImportFiles(e.dataTransfer.files);
+      }}
+    >
       {/* Header bar */}
       <div className="flex items-center justify-between h-10 px-3 bg-neutral-900 border-b border-neutral-800 flex-shrink-0">
         {/* Left: project name */}
@@ -561,6 +628,7 @@ export function StudioApp() {
             onRenameFile={handleRenameFile}
             onDuplicateFile={handleDuplicateFile}
             onMoveFile={handleMoveFile}
+            onImportFiles={handleImportFiles}
             codeChildren={
               editingFile ? (
                 isMediaFile(editingFile.path) ? (
@@ -641,6 +709,37 @@ export function StudioApp() {
       {/* Lint modal */}
       {lintModal !== null && projectId && (
         <LintModal findings={lintModal} projectId={projectId} onClose={() => setLintModal(null)} />
+      )}
+
+      {/* Global drag-drop overlay */}
+      {globalDragOver && (
+        <div className="absolute inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm pointer-events-none">
+          <div className="flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-dashed border-studio-accent/60 bg-studio-accent/[0.06]">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-studio-accent"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span className="text-sm font-medium text-studio-accent">
+              Drop files to import into project
+            </span>
+          </div>
+        </div>
+      )}
+      {uploadToast && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[91] px-4 py-2 rounded-lg bg-red-900/90 border border-red-700/50 text-sm text-red-200 shadow-lg animate-in fade-in slide-in-from-bottom-2">
+          {uploadToast}
+        </div>
       )}
     </div>
   );
