@@ -1,32 +1,48 @@
-export type TemplateId =
-  | "blank"
-  | "warm-grain"
-  | "play-mode"
-  | "swiss-grid"
-  | "vignelli"
-  | "decision-tree"
-  | "kinetic-type"
-  | "product-promo"
-  | "nyt-graph";
+import { listRemoteTemplates, type RemoteTemplateInfo } from "./remote.js";
+
+export type TemplateSource = "bundled" | "remote";
 
 export interface TemplateOption {
-  id: TemplateId;
+  id: string;
   label: string;
   hint: string;
+  source: TemplateSource;
 }
 
-export const TEMPLATES: TemplateOption[] = [
-  { id: "blank", label: "Blank", hint: "Empty composition — just the scaffolding" },
-  { id: "warm-grain", label: "Warm Grain", hint: "Cream aesthetic with grain texture" },
-  { id: "play-mode", label: "Play Mode", hint: "Playful elastic animations" },
-  { id: "swiss-grid", label: "Swiss Grid", hint: "Structured grid layout" },
-  { id: "vignelli", label: "Vignelli", hint: "Bold typography with red accents" },
-  { id: "decision-tree", label: "Decision Tree", hint: "Animated flowchart with branching paths" },
-  { id: "kinetic-type", label: "Kinetic Type", hint: "Bold kinetic typography promo" },
+/** Templates bundled in the CLI package (available offline). */
+export const BUNDLED_TEMPLATES: TemplateOption[] = [
   {
-    id: "product-promo",
-    label: "Product Promo",
-    hint: "Multi-scene product showcase with SVG assets",
+    id: "blank",
+    label: "Blank",
+    hint: "Empty composition — just the scaffolding",
+    source: "bundled",
   },
-  { id: "nyt-graph", label: "NYT Graph", hint: "Animated data chart in print editorial style" },
 ];
+
+/**
+ * Resolve the full template list by merging bundled and remote templates.
+ * Fetches templates.json from GitHub (cached 24h). No CLI release needed to add templates.
+ * If offline, returns only bundled templates.
+ */
+export async function resolveTemplateList(): Promise<TemplateOption[]> {
+  const bundled = [...BUNDLED_TEMPLATES];
+  const bundledIds = new Set(bundled.map((t) => t.id));
+
+  let remote: RemoteTemplateInfo[] = [];
+  try {
+    remote = await listRemoteTemplates();
+  } catch {
+    // Offline — return bundled only
+  }
+
+  const remoteOptions: TemplateOption[] = remote
+    .filter((r) => !r.bundled && !bundledIds.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      label: r.label,
+      hint: r.hint,
+      source: "remote" as const,
+    }));
+
+  return [...bundled, ...remoteOptions];
+}

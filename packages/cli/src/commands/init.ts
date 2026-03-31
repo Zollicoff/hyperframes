@@ -14,7 +14,12 @@ import { execFileSync, spawn } from "node:child_process";
 import * as clack from "@clack/prompts";
 import { c } from "../ui/colors.js";
 import { printBanner } from "../ui/banner.js";
-import { TEMPLATES, type TemplateId } from "../templates/generators.js";
+import {
+  BUNDLED_TEMPLATES,
+  resolveTemplateList,
+  type TemplateOption,
+} from "../templates/generators.js";
+import { fetchRemoteTemplate } from "../templates/remote.js";
 import { trackInitTemplate } from "../telemetry/events.js";
 import { hasFFmpeg } from "../whisper/manager.js";
 
@@ -79,8 +84,6 @@ async function installSkills(interactive: boolean): Promise<void> {
     }
   }
 }
-
-const ALL_TEMPLATE_IDS = TEMPLATES.map((t) => t.id);
 
 interface VideoMeta {
   durationSeconds: number;
@@ -357,17 +360,22 @@ async function handleVideoFile(
 // scaffoldProject — copy template, patch video refs, write meta.json
 // ---------------------------------------------------------------------------
 
-function scaffoldProject(
+async function scaffoldProject(
   destDir: string,
   name: string,
-  templateId: TemplateId,
+  templateId: string,
   localVideoName: string | undefined,
   durationSeconds?: number,
-): void {
+): Promise<void> {
   mkdirSync(destDir, { recursive: true });
 
+  // Use bundled template if available, otherwise fetch from GitHub
   const templateDir = getStaticTemplateDir(templateId);
-  cpSync(templateDir, destDir, { recursive: true });
+  if (existsSync(templateDir)) {
+    cpSync(templateDir, destDir, { recursive: true });
+  } else {
+    await fetchRemoteTemplate(templateId, destDir);
+  }
   patchVideoSrc(destDir, localVideoName, durationSeconds);
 
   writeFileSync(
@@ -430,7 +438,7 @@ Examples:
     name: { type: "positional", description: "Project name", required: false },
     template: {
       type: "string",
-      description: `Template (${ALL_TEMPLATE_IDS.join(", ")})`,
+      description: "Template name (e.g. warm-grain, swiss-grid, blank)",
       alias: "t",
     },
     video: {
@@ -481,13 +489,7 @@ Examples:
     // Non-interactive mode — all inputs from flags, defaults where missing
     // -----------------------------------------------------------------------
     if (!interactive) {
-      const resolvedTemplate = templateFlag ?? "blank";
-      if (!ALL_TEMPLATE_IDS.includes(resolvedTemplate as TemplateId)) {
-        console.error(c.error(`Unknown template: ${resolvedTemplate}`));
-        console.error(`Available: ${ALL_TEMPLATE_IDS.join(", ")}`);
-        process.exit(1);
-      }
-      const templateId = resolvedTemplate as TemplateId;
+      const templateId = templateFlag ?? "blank";
       const name = args.name ?? "my-video";
       const destDir = resolve(name);
 
@@ -557,7 +559,23 @@ Examples:
       }
 
       // Scaffold
-      scaffoldProject(destDir, basename(destDir), templateId, localVideoName, videoDuration);
+      try {
+        await scaffoldProject(
+          destDir,
+          basename(destDir),
+          templateId,
+          localVideoName,
+          videoDuration,
+        );
+      } catch (err) {
+        console.error(
+          c.error(
+            `Failed to scaffold template "${templateId}": ${err instanceof Error ? err.message : err}`,
+          ),
+        );
+        console.error(c.dim("Use --template blank for offline use."));
+        process.exit(1);
+      }
       trackInitTemplate(templateId);
       const transcriptFile = resolve(destDir, "transcript.json");
       if (existsSync(transcriptFile)) {
@@ -708,21 +726,22 @@ Examples:
     }
 
     // 3. Pick template — skip prompt if --template was provided
-    let templateId: TemplateId;
-    if (templateFlag && ALL_TEMPLATE_IDS.includes(templateFlag as TemplateId)) {
-      templateId = templateFlag as TemplateId;
+    let templateId: string;
+
+    if (templateFlag) {
+      templateId = templateFlag;
     } else {
-      if (templateFlag) {
-        clack.log.warn(`Unknown template "${templateFlag}" — pick from the list below`);
-      }
+      // Resolve full template list (bundled + remote)
+      const allTemplates = await resolveTemplateList();
+      const defaultTemplate = "blank";
       const templateResult = await clack.select({
         message: "Pick a template",
-        options: TEMPLATES.map((t) => ({
+        options: allTemplates.map((t: TemplateOption) => ({
           value: t.id,
           label: t.label,
-          hint: t.hint,
+          hint: t.source === "remote" ? `${t.hint} (download)` : t.hint,
         })),
-        initialValue: "blank" as TemplateId,
+        initialValue: defaultTemplate,
       });
       if (clack.isCancel(templateResult)) {
         clack.cancel("Setup cancelled.");
@@ -731,14 +750,32 @@ Examples:
       templateId = templateResult;
     }
 
-    // 4. Copy template and patch
-    scaffoldProject(destDir, name, templateId, localVideoName, videoDuration);
+    // 4. Scaffold project (bundled templates are instant, remote templates download from GitHub)
+    const spin = clack.spinner();
+    const isBundled = BUNDLED_TEMPLATES.some((t) => t.id === templateId);
+    if (!isBundled) {
+      spin.start(`Downloading template ${c.accent(templateId)}...`);
+    }
+    try {
+      await scaffoldProject(destDir, name, templateId, localVideoName, videoDuration);
+      if (!isBundled) {
+        spin.stop(c.success(`Downloaded ${templateId}`));
+      }
+    } catch (err) {
+      if (!isBundled) {
+        spin.stop(c.error("Download failed"));
+      }
+      clack.log.error(
+        `${err instanceof Error ? err.message : err}\n${c.dim("Use --template blank for offline use.")}`,
+      );
+      process.exit(1);
+    }
     trackInitTemplate(templateId);
 
     // 4b. Patch captions with transcript if available
     const transcriptFile = resolve(destDir, "transcript.json");
     if (existsSync(transcriptFile)) {
-      patchTranscript(destDir, transcriptFile);
+      await patchTranscript(destDir, transcriptFile);
     }
 
     // 5. Install AI coding skills
