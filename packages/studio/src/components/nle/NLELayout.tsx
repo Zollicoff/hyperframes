@@ -29,6 +29,10 @@ interface NLELayoutProps {
   ) => ReactNode;
   /** Exposes the compIdToSrc map for parent components (e.g., useRenderClipContent) */
   onCompIdToSrcChange?: (map: Map<string, string>) => void;
+  /** Whether the timeline panel is visible (default: true) */
+  timelineVisible?: boolean;
+  /** Callback to toggle timeline visibility */
+  onToggleTimeline?: () => void;
 }
 
 const MIN_TIMELINE_H = 100;
@@ -47,6 +51,8 @@ export const NLELayout = memo(function NLELayout({
   onCompositionChange,
   renderClipContent,
   onCompIdToSrcChange,
+  timelineVisible,
+  onToggleTimeline,
 }: NLELayoutProps) {
   const {
     iframeRef,
@@ -311,31 +317,20 @@ export const NLELayout = memo(function NLELayout({
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      {/* Preview — takes remaining space above timeline */}
-      <div className="flex-1 min-h-0 relative">
-        <NLEPreview
-          projectId={projectId}
-          iframeRef={iframeRef}
-          onIframeLoad={onIframeLoad}
-          portrait={portrait}
-          directUrl={directUrl}
-          refreshKey={refreshKey}
-        />
-        {previewOverlay}
-      </div>
-
-      {/* Resize divider */}
-      <div
-        className="h-1 flex-shrink-0 bg-neutral-800 hover:bg-blue-500 cursor-row-resize transition-colors active:bg-blue-400 z-10"
-        style={{ touchAction: "none" }}
-        onPointerDown={handleDividerPointerDown}
-        onPointerMove={handleDividerPointerMove}
-        onPointerUp={handleDividerPointerUp}
-      />
-
-      {/* Timeline section — fixed height, resizable */}
-      <div className="flex flex-col flex-shrink-0" style={{ height: timelineH }}>
-        {/* Breadcrumb + Player controls */}
+      {/* Preview + player controls — takes remaining space above timeline */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 relative">
+          <NLEPreview
+            projectId={projectId}
+            iframeRef={iframeRef}
+            onIframeLoad={onIframeLoad}
+            portrait={portrait}
+            directUrl={directUrl}
+            refreshKey={refreshKey}
+          />
+          {previewOverlay}
+        </div>
+        {/* Player controls always visible, regardless of timeline state */}
         <div className="bg-neutral-950 border-t border-neutral-800/50 flex-shrink-0">
           {compositionStack.length > 1 && (
             <CompositionBreadcrumb
@@ -343,28 +338,49 @@ export const NLELayout = memo(function NLELayout({
               onNavigate={handleNavigateComposition}
             />
           )}
-          <PlayerControls onTogglePlay={togglePlay} onSeek={seek} />
-        </div>
-
-        {/* Timeline tracks */}
-        <div
-          className="flex-1 min-h-0 overflow-y-auto bg-neutral-950"
-          onDoubleClick={(e) => {
-            if ((e.target as HTMLElement).closest("[data-clip]")) return;
-            if (compositionStack.length > 1) {
-              updateCompositionStack((prev) => prev.slice(0, -1));
-            }
-          }}
-        >
-          {timelineToolbar}
-          <Timeline
+          <PlayerControls
+            onTogglePlay={togglePlay}
             onSeek={seek}
-            onDrillDown={handleDrillDown}
-            renderClipContent={renderClipContent}
+            timelineVisible={timelineVisible ?? true}
+            onToggleTimeline={onToggleTimeline}
           />
-          {timelineFooter}
         </div>
       </div>
+
+      {(timelineVisible ?? true) && (
+        <>
+          {/* Resize divider */}
+          <div
+            className="h-1 flex-shrink-0 bg-neutral-800 hover:bg-blue-500 cursor-row-resize transition-colors active:bg-blue-400 z-10"
+            style={{ touchAction: "none" }}
+            onPointerDown={handleDividerPointerDown}
+            onPointerMove={handleDividerPointerMove}
+            onPointerUp={handleDividerPointerUp}
+          />
+
+          {/* Timeline section — fixed height, resizable */}
+          <div className="flex flex-col flex-shrink-0" style={{ height: timelineH }}>
+            {/* Timeline tracks */}
+            <div
+              className="flex-1 min-h-0 overflow-y-auto bg-neutral-950"
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest("[data-clip]")) return;
+                if (compositionStack.length > 1) {
+                  updateCompositionStack((prev) => prev.slice(0, -1));
+                }
+              }}
+            >
+              {timelineToolbar}
+              <Timeline
+                onSeek={seek}
+                onDrillDown={handleDrillDown}
+                renderClipContent={renderClipContent}
+              />
+              {timelineFooter}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 });
