@@ -12,6 +12,7 @@
 import { readFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { parseHTML } from "linkedom";
+import postcss from "postcss";
 import {
   compileTimingAttrs,
   injectDurations,
@@ -20,6 +21,7 @@ import {
   type ResolvedDuration,
   type UnresolvedElement,
   rewriteAssetPaths,
+  rewriteCssAssetUrls,
 } from "@hyperframes/core";
 import { extractVideoMetadata, extractAudioMetadata } from "../utils/ffprobe.js";
 import {
@@ -370,36 +372,31 @@ function promoteCssImportsToLinkTags(html: string): string {
  */
 function scopeCssToComposition(css: string, compositionId: string): string {
   const scope = `[data-composition-id="${compositionId}"]`;
-  // Extract @import rules first — they have no {} block and the selector
-  // regex corrupts them by treating the text after @ as a selector.
-  const importRe = /@import\s+url\([^)]*\)\s*;|@import\s+["'][^"']+["']\s*;/gi;
-  const imports: string[] = [];
-  const cssWithoutImports = css.replace(importRe, (match) => {
-    imports.push(match.trim());
-    return "";
+  const globalAtRules = new Set(["keyframes", "-webkit-keyframes", "font-face"]);
+  const root = postcss.parse(css);
+
+  root.walkRules((rule) => {
+    // Skip rules nested inside @keyframes or @font-face — they're global
+    let node: postcss.Node | undefined = rule.parent;
+    while (node) {
+      if (
+        node.type === "atrule" &&
+        globalAtRules.has((node as postcss.AtRule).name.toLowerCase())
+      ) {
+        return;
+      }
+      node = (node as postcss.ChildNode).parent;
+    }
+
+    rule.selectors = rule.selectors.map((sel) => {
+      if (!sel.trim()) return sel;
+      if (/^(html|body|:root|\*)$/i.test(sel.trim())) return sel;
+      if (sel.includes(`data-composition-id="${compositionId}"`)) return sel;
+      return `${scope} ${sel}`;
+    });
   });
-  // Split on top-level rule boundaries. Simple regex approach:
-  // scope each selector in rule blocks while preserving at-rules.
-  const scoped = cssWithoutImports.replace(/([^{}@]+)\{/g, (match, selectors: string) => {
-    const trimmed = selectors.trim();
-    // Skip @-rule headers (they don't have selectors to scope)
-    if (trimmed.startsWith("@")) return match;
-    // Skip if already scoped to this composition
-    if (trimmed.includes(`data-composition-id="${compositionId}"`)) return match;
-    // Scope each comma-separated selector
-    const scopedSelectors = trimmed
-      .split(",")
-      .map((s: string) => {
-        const sel = s.trim();
-        if (!sel) return sel;
-        // Don't scope :root, html, body, or * alone — they're global
-        if (/^(html|body|:root|\*)$/i.test(sel)) return sel;
-        return `${scope} ${sel}`;
-      })
-      .join(", ");
-    return `${scopedSelectors} {`;
-  });
-  return imports.length > 0 ? imports.join("\n") + "\n\n" + scoped : scoped;
+
+  return root.toResult().css;
 }
 
 function coalesceHeadStylesAndBodyScripts(html: string): string {
@@ -527,7 +524,7 @@ function inlineSubCompositions(
     const inferredCompId = innerRoot?.getAttribute("data-composition-id")?.trim() || null;
 
     for (const styleEl of contentDoc.querySelectorAll("style")) {
-      const css = styleEl.textContent || "";
+      const css = rewriteCssAssetUrls(styleEl.textContent || "", srcPath);
       const scopeId = compId || inferredCompId;
       if (scopeId && css.trim()) {
         // Scope sub-composition styles to their composition ID to prevent
@@ -746,6 +743,9 @@ export async function compileForRender(
   const mainVideos = parseVideoElements(html);
   const mainAudios = parseAudioElements(html);
 
+  // Keep inlined sub-composition media authoritative on ID collisions.
+  // inlineSubCompositions() hoists those nodes into the final HTML, so the
+  // producer should follow the same precedence the runtime sees in the merged DOM.
   const videos = dedupeElementsById([...mainVideos, ...subVideos]);
   const audios = dedupeElementsById([...mainAudios, ...subAudios]);
 
@@ -948,6 +948,7 @@ export async function recompileWithResolutions(
   const mainVideos = parseVideoElements(html);
   const mainAudios = parseAudioElements(html);
 
+  // Keep inlined sub-composition media authoritative on ID collisions.
   const videos = dedupeElementsById([...mainVideos, ...subVideos]);
   const audios = dedupeElementsById([...mainAudios, ...subAudios]);
 
