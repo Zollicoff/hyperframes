@@ -41,6 +41,8 @@ export interface CompiledComposition {
   videos: VideoElement[];
   audios: AudioElement[];
   unresolvedCompositions: UnresolvedElement[];
+  /** Assets that resolve outside projectDir. Keys are the path used in HTML, values are absolute filesystem paths. */
+  externalAssets: Map<string, string>;
   width: number;
   height: number;
   staticDuration: number;
@@ -693,6 +695,149 @@ function ensureFullDocument(html: string): string {
 }
 
 /**
+ * Download external CDN scripts and inline them into the HTML so rendering
+ * works without network access (Docker, CI, restricted environments).
+ */
+export async function inlineExternalScripts(html: string): Promise<string> {
+  const { document } = parseHTML(html);
+  const scripts = document.querySelectorAll("script[src]");
+  const externalScripts: { el: Element; src: string }[] = [];
+
+  for (const el of scripts) {
+    const src = (el.getAttribute("src") || "").trim();
+    if (src && isHttpUrl(src)) {
+      externalScripts.push({ el: el as unknown as Element, src });
+    }
+  }
+
+  if (externalScripts.length === 0) return html;
+
+  const downloads = await Promise.allSettled(
+    externalScripts.map(async ({ src }) => {
+      const response = await fetch(src, {
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status} for ${src}`);
+      return { src, text: await response.text() };
+    }),
+  );
+
+  let result = html;
+  for (let i = 0; i < downloads.length; i++) {
+    const download = downloads[i]!;
+    const { src } = externalScripts[i]!;
+    if (download.status === "fulfilled") {
+      const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const scriptTagRe = new RegExp(
+        `<script\\b[^>]*\\bsrc=["']${escapedSrc}["'][^>]*>\\s*</script>`,
+        "is",
+      );
+      // Escape </script in downloaded content to prevent premature tag closure.
+      // <\/script is safe: the HTML parser doesn't recognize it as a close tag,
+      // but JS treats \/ as / so the code executes identically.
+      const safeText = download.value.text.replace(/<\/script/gi, "<\\/script");
+      result = result.replace(scriptTagRe, `<script>/* inlined: ${src} */\n${safeText}\n</script>`);
+      console.log(`[Compiler] Inlined CDN script: ${src}`);
+    } else {
+      console.warn(
+        `[Compiler] WARNING: Failed to download CDN script: ${src} — ${download.reason}. ` +
+          `The render may fail if this script is required (e.g. GSAP). ` +
+          `Consider bundling it locally in your project.`,
+      );
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Scan compiled HTML for asset references that resolve outside projectDir.
+ * For each, map the normalized in-HTML path to the real filesystem path so
+ * the orchestrator can copy them into the compiled output directory.
+ *
+ * Handles: src/href attributes, CSS url(), inline style url().
+ */
+export function collectExternalAssets(
+  html: string,
+  projectDir: string,
+): { html: string; externalAssets: Map<string, string> } {
+  const absProjectDir = resolve(projectDir);
+  const externalAssets = new Map<string, string>();
+  const CSS_URL_RE = /\burl\(\s*(["']?)([^)"']+)\1\s*\)/g;
+
+  function processPath(rawPath: string): string | null {
+    const trimmed = rawPath.trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith("/") ||
+      trimmed.startsWith("http://") ||
+      trimmed.startsWith("https://") ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("data:") ||
+      trimmed.startsWith("#")
+    ) {
+      return null;
+    }
+    const absPath = resolve(absProjectDir, trimmed);
+    if (absPath.startsWith(absProjectDir + "/") || absPath === absProjectDir) {
+      return null; // inside projectDir, file server handles this
+    }
+    if (!existsSync(absPath)) return null;
+    // resolve() already canonicalizes the path (no .. components remain)
+    const safeKey = "hf-ext/" + absPath.replace(/^\//, "");
+    externalAssets.set(safeKey, absPath);
+    return safeKey;
+  }
+
+  const { document } = parseHTML(html);
+
+  // Rewrite src and href attributes
+  for (const el of document.querySelectorAll("[src], [href]")) {
+    for (const attr of ["src", "href"]) {
+      const val = (el.getAttribute(attr) || "").trim();
+      if (!val) continue;
+      const rewritten = processPath(val);
+      if (rewritten) el.setAttribute(attr, rewritten);
+    }
+  }
+
+  // Rewrite CSS url() in <style> blocks
+  for (const styleEl of document.querySelectorAll("style")) {
+    const css = styleEl.textContent || "";
+    if (!css.includes("url(")) continue;
+    const rewritten = css.replace(CSS_URL_RE, (full, quote: string, rawUrl: string) => {
+      const result = processPath((rawUrl || "").trim());
+      if (!result) return full;
+      return `url(${quote || ""}${result}${quote || ""})`;
+    });
+    if (rewritten !== css) styleEl.textContent = rewritten;
+  }
+
+  // Rewrite inline style url() on elements
+  for (const el of document.querySelectorAll("[style]")) {
+    const style = el.getAttribute("style") || "";
+    if (!style.includes("url(")) continue;
+    const rewritten = style.replace(CSS_URL_RE, (full, quote: string, rawUrl: string) => {
+      const result = processPath((rawUrl || "").trim());
+      if (!result) return full;
+      return `url(${quote || ""}${result}${quote || ""})`;
+    });
+    if (rewritten !== style) el.setAttribute("style", rewritten);
+  }
+
+  if (externalAssets.size > 0) {
+    console.log(
+      `[Compiler] Found ${externalAssets.size} asset(s) outside project directory — will copy to render output`,
+    );
+  }
+
+  return {
+    html: externalAssets.size > 0 ? document.toString() : html,
+    externalAssets,
+  };
+}
+
+/**
  * Compile an HTML composition project into a single self-contained HTML string
  * with all media metadata resolved.
  */
@@ -735,9 +880,21 @@ export async function compileForRender(
     "$1",
   );
 
-  const html = injectDeterministicFontFaces(
+  const coalescedHtml = injectDeterministicFontFaces(
     coalesceHeadStylesAndBodyScripts(promoteCssImportsToLinkTags(sanitizedHtml)),
   );
+
+  // Download CDN scripts and inline them AFTER coalescing. This order matters:
+  // coalesceHeadStylesAndBodyScripts merges inline scripts and appends them at
+  // the end of <body>. If we inlined CDN scripts first, the GSAP library would
+  // become an inline script that gets moved after local <script src="script.js">
+  // tags that depend on it, causing "gsap is not defined" errors.
+  const assembledHtml = await inlineExternalScripts(coalescedHtml);
+
+  // Collect assets that resolve outside projectDir (e.g. ../shared-assets/hero.png).
+  // These can't be served by the file server, so we map them to paths the
+  // orchestrator will copy into the compiled output directory.
+  const { html, externalAssets } = collectExternalAssets(assembledHtml, projectDir);
 
   // Parse main HTML elements
   const mainVideos = parseVideoElements(html);
@@ -795,6 +952,7 @@ export async function compileForRender(
     videos,
     audios,
     unresolvedCompositions,
+    externalAssets,
     width,
     height,
     staticDuration,

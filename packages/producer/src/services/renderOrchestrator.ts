@@ -249,6 +249,18 @@ function writeCompiledArtifacts(
     writeFileSync(outPath, html, "utf-8");
   }
 
+  // Copy external assets (files outside projectDir) into the compiled directory
+  // so the file server can serve them.
+  for (const [relativePath, absolutePath] of compiled.externalAssets) {
+    const outPath = resolve(join(compileDir, relativePath));
+    if (!outPath.startsWith(compileDir + "/")) {
+      console.warn(`[Render] Skipping external asset with unsafe path: ${relativePath}`);
+      continue;
+    }
+    mkdirSync(dirname(outPath), { recursive: true });
+    copyFileSync(absolutePath, outPath);
+  }
+
   if (includeSummary) {
     const summary = {
       width: compiled.width,
@@ -611,11 +623,64 @@ export async function executeRenderJob(
     job.totalFrames = Math.ceil(composition.duration * job.config.fps);
 
     if (job.duration <= 0) {
-      throw new Error(
-        "Invalid composition duration: " +
-          job.duration +
-          ". Check that GSAP timelines are registered.",
+      // Gather diagnostics to help users understand why the render would produce a black video.
+      // Wrapped in try/catch because the browser tab may have crashed (which could be
+      // WHY duration is 0), and we don't want a Puppeteer error to mask the real message.
+      const diagnostics: string[] = [];
+      try {
+        if (probeSession) {
+          const timelinesInfo = await probeSession.page.evaluate(() => {
+            const tl = (window as any).__timelines;
+            const hf = (window as any).__hf;
+            return {
+              timelineKeys: tl ? Object.keys(tl) : [],
+              hfDuration: hf?.duration ?? null,
+              gsapLoaded: typeof (window as any).gsap !== "undefined",
+            };
+          });
+          if (!timelinesInfo.gsapLoaded) {
+            diagnostics.push(
+              "GSAP is not loaded — CDN script may have failed to download. " +
+                "Bundle GSAP locally in your project instead of using a CDN <script src>.",
+            );
+          } else if (timelinesInfo.timelineKeys.length === 0) {
+            diagnostics.push(
+              "GSAP is loaded but no timelines were registered on window.__timelines. " +
+                "Ensure your script creates a timeline and assigns it: " +
+                'window.__timelines["main"] = gsap.timeline({ paused: true });',
+            );
+          }
+          for (const line of probeSession.browserConsoleBuffer) {
+            if (/\[Browser:ERROR\]|\[Browser:PAGEERROR\]|404|net::ERR_/i.test(line)) {
+              diagnostics.push(`Browser: ${line}`);
+            }
+          }
+        }
+      } catch {
+        diagnostics.push("(Could not gather browser diagnostics — page may have crashed)");
+      }
+      const hint =
+        diagnostics.length > 0
+          ? "\n\nDiagnostics:\n  - " + diagnostics.join("\n  - ")
+          : "\n\nCheck that GSAP timelines are registered on window.__timelines.";
+      throw new Error("Composition duration is 0 — this would produce a black video." + hint);
+    }
+
+    // Surface browser-side asset failures (404s, script errors) as warnings.
+    // These don't block the render but indicate missing images, fonts, or
+    // scripts that may produce unexpected visual artifacts.
+    if (probeSession) {
+      const failedRequests = probeSession.browserConsoleBuffer.filter((line) =>
+        /404|ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_REFUSED|net::ERR_/i.test(line),
       );
+      if (failedRequests.length > 0) {
+        log.warn("Browser encountered network failures during page load:", {
+          failures: failedRequests.slice(0, 10),
+        });
+        for (const line of failedRequests.slice(0, 5)) {
+          console.warn(`[Render] Asset load failure: ${line}`);
+        }
+      }
     }
 
     perfStages.compileMs = Date.now() - stage1Start;
