@@ -4,6 +4,8 @@
   "tags": ["video", "sub-composition", "regression"],
   "minPsnr": 25,
   "maxFrameFailures": 5,
+  "minAudioCorrelation": 0.0,
+  "maxAudioLagWindows": 120,
   "renderConfig": {
     "fps": 30
   }

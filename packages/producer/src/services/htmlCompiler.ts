@@ -746,8 +746,8 @@ export async function compileForRender(
   const mainVideos = parseVideoElements(html);
   const mainAudios = parseAudioElements(html);
 
-  const videos = dedupeElementsById([...subVideos, ...mainVideos]);
-  const audios = dedupeElementsById([...subAudios, ...mainAudios]);
+  const videos = dedupeElementsById([...mainVideos, ...subVideos]);
+  const audios = dedupeElementsById([...mainAudios, ...subAudios]);
 
   // Advisory video checks (sparse keyframes, VFR). Fire-and-forget — these spawn
   // ffprobe subprocesses and should not block compilation since they only produce warnings.
@@ -773,28 +773,6 @@ export async function compileForRender(
       .catch(() => {});
   }
 
-  // Persist auto-assigned IDs back into the HTML so the compiled file served
-  // to Puppeteer has matching element IDs. parseVideoElements uses parseHTML
-  // internally and sets el.id = "hf-video-N" on the JSDOM node, but that does
-  // not mutate the html string. We do one more DOM pass here to write those IDs
-  // into the document and re-serialize — only if there are any id-less videos.
-  const autoIdVideos = videos.filter((v) => v.id.startsWith("hf-video-"));
-  let htmlWithIds = html;
-  if (autoIdVideos.length > 0) {
-    const { document: idDoc } = parseHTML(html);
-    let changed = false;
-    for (const v of autoIdVideos) {
-      const el = idDoc.querySelector(`video[src="${v.src}"]:not([id])`);
-      if (el) {
-        el.id = v.id;
-        changed = true;
-      }
-    }
-    if (changed) {
-      htmlWithIds = idDoc.documentElement?.outerHTML ?? html;
-    }
-  }
-
   // Read dimensions from root composition element using DOM parser
   const { document } = parseHTML(html);
   const rootEl = document.querySelector("[data-composition-id]");
@@ -812,7 +790,7 @@ export async function compileForRender(
     : 0;
 
   return {
-    html: htmlWithIds,
+    html,
     subCompositions,
     videos,
     audios,
@@ -970,8 +948,8 @@ export async function recompileWithResolutions(
   const mainVideos = parseVideoElements(html);
   const mainAudios = parseAudioElements(html);
 
-  const videos = dedupeElementsById([...subVideos, ...mainVideos]);
-  const audios = dedupeElementsById([...subAudios, ...mainAudios]);
+  const videos = dedupeElementsById([...mainVideos, ...subVideos]);
+  const audios = dedupeElementsById([...mainAudios, ...subAudios]);
 
   const remaining = compiled.unresolvedCompositions.filter(
     (c) => !resolutions.some((r) => r.id === c.id),
