@@ -2,6 +2,10 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
 export interface Word {
+  /** Stable identifier for referencing this word in overrides and compositions.
+   *  Assigned during normalization as `w{index}`. Optional for backwards compat
+   *  with existing transcript.json files that predate this field. */
+  id?: string;
   text: string;
   start: number;
   end: number;
@@ -150,13 +154,13 @@ function parseWhisperCpp(data: Record<string, unknown>): Word[] {
 }
 
 function parseOpenAI(data: Record<string, unknown>): Word[] {
-  const rawWords = (data.words ?? []) as Array<{
+  const words = (data.words ?? []) as Array<{
     word?: string;
     text?: string;
     start?: number;
     end?: number;
   }>;
-  return rawWords
+  return words
     .map((w) => ({
       text: (w.word ?? w.text ?? "").trim(),
       start: round3(w.start ?? 0),
@@ -280,8 +284,14 @@ export function loadTranscript(filePath: string): { words: Word[]; format: Trans
   const ext = extname(filePath).toLowerCase();
   const content = readFileSync(filePath, "utf-8");
 
-  if (ext === ".srt") return { words: parseSrt(content), format: "srt" };
-  if (ext === ".vtt") return { words: parseVtt(content), format: "vtt" };
+  if (ext === ".srt") {
+    const words = parseSrt(content).map((w, i) => ({ ...w, id: w.id ?? `w${i}` }));
+    return { words, format: "srt" };
+  }
+  if (ext === ".vtt") {
+    const words = parseVtt(content).map((w, i) => ({ ...w, id: w.id ?? `w${i}` }));
+    return { words, format: "vtt" };
+  }
 
   // JSON formats — parse once, detect, then extract words
   const parsed = JSON.parse(content);
@@ -293,6 +303,7 @@ export function loadTranscript(filePath: string): { words: Word[]; format: Trans
       : format === "openai"
         ? parseOpenAI(parsed)
         : (parsed as Word[]).map((w) => ({
+            id: w.id ?? "",
             text: w.text.trim(),
             start: round3(w.start),
             end: round3(w.end),
