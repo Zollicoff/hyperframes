@@ -45,7 +45,24 @@ export default defineCommand({
       (max, el) => Math.max(max, el.startTime + el.duration),
       0,
     );
-    const resolution = parsed.resolution === "portrait" ? "1080x1920" : "1920x1080";
+    // Read actual dimensions from root composition element
+    const widthMatch =
+      html.match(/data-composition-id[^>]*data-width=["'](\d+)["']/) ||
+      html.match(/data-width=["'](\d+)["'][^>]*data-composition-id/);
+    const heightMatch =
+      html.match(/data-composition-id[^>]*data-height=["'](\d+)["']/) ||
+      html.match(/data-height=["'](\d+)["'][^>]*data-composition-id/);
+    const width = widthMatch?.[1]
+      ? parseInt(widthMatch[1], 10)
+      : parsed.resolution === "portrait"
+        ? 1080
+        : 1920;
+    const height = heightMatch?.[1]
+      ? parseInt(heightMatch[1], 10)
+      : parsed.resolution === "portrait"
+        ? 1920
+        : 1080;
+    const resolution = `${width}x${height}`;
     const size = totalSize(project.dir);
 
     const typeCounts: Record<string, number> = {};
@@ -62,8 +79,8 @@ export default defineCommand({
           withMeta({
             name: project.name,
             resolution: parsed.resolution,
-            width: parsed.resolution === "portrait" ? 1080 : 1920,
-            height: parsed.resolution === "portrait" ? 1920 : 1080,
+            width,
+            height,
             duration: maxEnd,
             elements: parsed.elements.length,
             tracks: tracks.size,

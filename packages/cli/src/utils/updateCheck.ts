@@ -1,3 +1,4 @@
+import { compareVersions } from "compare-versions";
 import { readConfig, writeConfig } from "../telemetry/config.js";
 import { VERSION } from "../version.js";
 import { isDevMode } from "./env.js";
@@ -5,6 +6,15 @@ import { isDevMode } from "./env.js";
 const NPM_REGISTRY_URL = "https://registry.npmjs.org/hyperframes/latest";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const FETCH_TIMEOUT_MS = 3000;
+
+/** Returns true if `a` is newer than `b` per semver (handles alpha, beta, rc). */
+function isNewerSemver(a: string, b: string): boolean {
+  try {
+    return compareVersions(a, b) > 0;
+  } catch {
+    return a !== b;
+  }
+}
 
 export interface UpdateCheckResult {
   current: string;
@@ -34,7 +44,7 @@ export async function checkForUpdate(force?: boolean): Promise<UpdateCheckResult
       return {
         current: VERSION,
         latest: config.latestVersion,
-        updateAvailable: config.latestVersion !== VERSION,
+        updateAvailable: isNewerSemver(config.latestVersion, VERSION),
       };
     }
   }
@@ -57,7 +67,7 @@ export async function checkForUpdate(force?: boolean): Promise<UpdateCheckResult
     config.latestVersion = latest;
     writeConfig(config);
 
-    return { current: VERSION, latest, updateAvailable: latest !== VERSION };
+    return { current: VERSION, latest, updateAvailable: isNewerSemver(latest, VERSION) };
   } catch {
     return fallbackResult(config.latestVersion);
   }
@@ -67,7 +77,7 @@ function fallbackResult(cachedLatest?: string): UpdateCheckResult {
   return {
     current: VERSION,
     latest: cachedLatest ?? VERSION,
-    updateAvailable: cachedLatest ? cachedLatest !== VERSION : false,
+    updateAvailable: cachedLatest ? isNewerSemver(cachedLatest, VERSION) : false,
   };
 }
 
@@ -80,7 +90,7 @@ export function getUpdateMeta(): UpdateMeta {
   return {
     version: VERSION,
     latestVersion: config.latestVersion,
-    updateAvailable: config.latestVersion ? config.latestVersion !== VERSION : false,
+    updateAvailable: config.latestVersion ? isNewerSemver(config.latestVersion, VERSION) : false,
   };
 }
 
