@@ -1,0 +1,132 @@
+# Transition Catalog
+
+Hard rules, scene template, and routing to implementation code. Read the reference file for the transition type you need — don't load all of them.
+
+## Hard Rules (CSS)
+
+These cause real bugs if violated.
+
+**Scene visibility:** Scene 1 visible by default (no `opacity: 0`). Scenes 2+ have `opacity: 0` on the CONTAINER div. GSAP reveals them. No visibility shim (`timedEls`).
+
+**Iframe compatibility:** No external font links (`<link>` to Google Fonts, `@import`). They block sandboxed iframes. Use system fonts.
+
+**Element structure:** No `class="clip"` on scene divs in standalone compositions. Only the root div gets `data-composition-id`/`data-start`/`data-duration`.
+
+**Overlay elements:** Staggered blocks = full-screen 1920x1080, NOT thin strips. Glitch RGB overlays = normal blending at 35% opacity, NOT `mix-blend-mode: multiply` (invisible on dark backgrounds). Light leak overlays = larger than the frame (2400px+), never a visible shape. Overexposure = use `filter: brightness()` on the scene, not just a white overlay.
+
+**VHS tape:** Clone actual scene content with `cloneNode(true)`, NOT colored bars. Each strip: wider than frame (2020px at left:-50px). Red+blue chromatic copies at z-index above main strip. Seeded PRNG for deterministic random offsets.
+
+**Z-index:** Gravity drop, zoom out, diagonal split need outgoing scene ON TOP (`zIndex: 10`) so it exits while revealing the new scene behind (`zIndex: 1`).
+
+**Page burn:** Content burns with the page — no falling debris. Hide scene1 via `tl.set` at burn end, NEVER `onComplete` (not reversible). `onUpdate` must restore `clipPath: "none"` when `wp <= 0` for rewind support. Incoming scene fades from black at 90% through burn.
+
+**Clock wipe:** 9-point polygon with intermediate edge positions. Step through 4 quadrants with separate tweens.
+
+**Grid dissolve:** Cycle 5 palette colors per cell, not monochrome.
+
+**Blinds count by energy:** Calm: 4h/6v. Medium: 6-8h/8v. High: 12-16h/16v.
+
+**Don't use:** Star iris (polygon interpolation broken), tilt-shift (no selective CSS blur), lens flare (visible shape, not optical), hinge/door (distorts too fast).
+
+## Hard Rules (Shader)
+
+Read [shader-setup.md](./shader-setup.md) for the full setup code these rules apply to.
+
+**WebGL setup:** `gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)` — NOT true. Vertex shader flips Y: `v_uv.y = 1.0 - v_uv.y`. `preserveDrawingBuffer: true` required for HyperFrames capture. No `fwidth()` without extension — use constant `0.003`.
+
+**Rendering model:** GL canvas stays visible entire composition — DOM scenes remain `opacity: 0`. Passthrough shader for holds. Scene capture = static snapshots at load; animated GSAP tweens on elements won't appear.
+
+**Scene capture:** Canvas `fillText` doesn't match CSS fonts exactly (known, not a bug). No CSS gradients or SVGs. Images and videos ARE supported via `ctx.drawImage()`. Video scenes re-capture every frame during transitions via `recaptureVideoScene()`.
+
+**Timeline:** Use `tl.call()` for begin/end — NOT `onStart`/`onComplete`. Each tween proxy `{p:0}` must be unique. Never boomerang (`u_progress*(1.-u_progress)*4.`). Morph both scenes.
+
+**Shader code:** One noise library per shader (NQ or ND, not both). Always `clamp(uv, 0., 1.)`.
+
+## Scene Template
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      }
+      .scene {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #scene1 {
+        z-index: 1;
+        background: #color;
+      }
+      #scene2 {
+        z-index: 2;
+        background: #color;
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="TOTAL"
+    >
+      <div id="scene1" class="scene"><!-- visible --></div>
+      <div id="scene2" class="scene"><!-- hidden --></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      // Transition code here
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
+```
+
+Every transition follows: position new scene → animate outgoing → swap → animate incoming → clean up overlays.
+
+## CSS Transitions
+
+All code examples use `old` for the outgoing scene-inner selector and `new` for the incoming, with `T` as the transition start time. Read the reference file for the type you need.
+
+| Type           | Transitions                                          | Reference                                  |
+| -------------- | ---------------------------------------------------- | ------------------------------------------ |
+| Push           | Push slide, vertical push, elastic push, squeeze     | [css-push.md](./css-push.md)               |
+| Radial / Shape | Circle iris, diamond iris, diagonal split            | [css-radial.md](./css-radial.md)           |
+| 3D             | 3D card flip                                         | [css-3d.md](./css-3d.md)                   |
+| Scale / Zoom   | Zoom through, zoom out                               | [css-scale.md](./css-scale.md)             |
+| Dissolve       | Crossfade, blur crossfade, focus pull, color dip     | [css-dissolve.md](./css-dissolve.md)       |
+| Cover          | Staggered blocks, horizontal blinds, vertical blinds | [css-cover.md](./css-cover.md)             |
+| Light          | Light leak, overexposure burn, film burn             | [css-light.md](./css-light.md)             |
+| Distortion     | Glitch, chromatic aberration, ripple, VHS tape       | [css-distortion.md](./css-distortion.md)   |
+| Mechanical     | Shutter, clock wipe                                  | [css-mechanical.md](./css-mechanical.md)   |
+| Grid           | Grid dissolve                                        | [css-grid.md](./css-grid.md)               |
+| Other          | Flash cut, gravity drop, morph circle                | [css-other.md](./css-other.md)             |
+| Blur           | Blur through, directional blur                       | [css-blur.md](./css-blur.md)               |
+| Destruction    | Page burn                                            | [css-destruction.md](./css-destruction.md) |
+
+## Shader Transitions
+
+WebGL fragment shaders that composite between scene textures per-pixel. Require setup boilerplate.
+
+| What                                                                                                                                                                                                                                            | Reference                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Setup (canvas, capture, WebGL init, render loop, GSAP integration)                                                                                                                                                                              | [shader-setup.md](./shader-setup.md)             |
+| Fragment shaders (14 transitions: domain warp, ridged burn, whip pan, SDF iris, ripple waves, gravitational lens, cinematic zoom, chromatic split, glitch, swirl vortex, thermal distortion, flash through white, cross-warp morph, light leak) | [shader-transitions.md](./shader-transitions.md) |
