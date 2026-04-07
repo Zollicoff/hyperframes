@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import type { Example } from "./_examples.js";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync, rmSync } from "node:fs";
 
 export const examples: Example[] = [
   ["Render to MP4", "hyperframes render --output output.mp4"],
@@ -9,8 +9,9 @@ export const examples: Example[] = [
   ["Deterministic render via Docker", "hyperframes render --docker --output deterministic.mp4"],
   ["Parallel rendering with 6 workers", "hyperframes render --workers 6 --output fast.mp4"],
 ];
-import { cpus, freemem } from "node:os";
-import { resolve, dirname, join } from "node:path";
+import { cpus, freemem, tmpdir } from "node:os";
+import { resolve, dirname, join, basename } from "node:path";
+import { execFileSync, spawn } from "node:child_process";
 import { resolveProject } from "../utils/project.js";
 import { lintProject, shouldBlockRender } from "../utils/lintProject.js";
 import { formatLintFindings } from "../utils/lintFormat.js";
@@ -20,6 +21,8 @@ import { formatBytes, formatDuration, errorBox } from "../ui/format.js";
 import { renderProgress } from "../ui/progress.js";
 import { trackRenderComplete, trackRenderError } from "../telemetry/events.js";
 import { bytesToMb } from "../telemetry/system.js";
+import { VERSION } from "../version.js";
+import { isDevMode } from "../utils/env.js";
 import type { RenderJob } from "@hyperframes/producer";
 
 const VALID_FPS = new Set([24, 30, 60]);
@@ -269,30 +272,174 @@ interface RenderOptions {
   browserPath?: string;
 }
 
+const DOCKER_IMAGE_PREFIX = "hyperframes-renderer";
+
+function dockerImageTag(version: string): string {
+  return `${DOCKER_IMAGE_PREFIX}:${version}`;
+}
+
+function resolveDockerfilePath(): string {
+  // Built CLI: dist/docker/Dockerfile.render
+  const builtPath = resolve(__dirname, "docker", "Dockerfile.render");
+  // Dev mode: src/docker/Dockerfile.render
+  const devPath = resolve(__dirname, "..", "src", "docker", "Dockerfile.render");
+  for (const p of [builtPath, devPath]) {
+    try {
+      statSync(p);
+      return p;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("Dockerfile.render not found — CLI package may be corrupted");
+}
+
+function dockerImageExists(tag: string): boolean {
+  try {
+    execFileSync("docker", ["image", "inspect", tag], { stdio: "pipe", timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureDockerImage(version: string, quiet: boolean): string {
+  const tag = dockerImageTag(version);
+
+  if (dockerImageExists(tag)) {
+    if (!quiet) console.log(c.dim(`  Docker image: ${tag} (cached)`));
+    return tag;
+  }
+
+  if (!quiet) console.log(c.dim(`  Building Docker image: ${tag}...`));
+
+  const dockerfilePath = resolveDockerfilePath();
+
+  // Copy Dockerfile to a temp build context so docker build has a clean context
+  const tmpDir = join(tmpdir(), `hyperframes-docker-${Date.now()}`);
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(join(tmpDir, "Dockerfile"), readFileSync(dockerfilePath));
+
+  // linux/amd64 forced — chrome-headless-shell doesn't ship ARM Linux binaries
+  try {
+    execFileSync(
+      "docker",
+      [
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--build-arg",
+        `HYPERFRAMES_VERSION=${version}`,
+        "-t",
+        tag,
+        tmpDir,
+      ],
+      { stdio: quiet ? "pipe" : "inherit", timeout: 600_000 },
+    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to build Docker image: ${message}`);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  if (!quiet) console.log(c.dim(`  Docker image: ${tag} (built)`));
+  return tag;
+}
+
 async function renderDocker(
   projectDir: string,
   outputPath: string,
   options: RenderOptions,
 ): Promise<void> {
-  const producer = await loadProducer();
   const startTime = Date.now();
 
-  let job: RenderJob;
+  // Dev mode (tsx/ts-node) uses "latest" since the local version isn't on npm
+  const dockerVersion = isDevMode() ? "latest" : VERSION;
+  if (!options.quiet && isDevMode()) {
+    console.log(c.dim("  Dev mode: using hyperframes@latest in Docker image"));
+  }
+
+  let imageTag: string;
   try {
-    job = producer.createRenderJob({
-      fps: options.fps,
-      quality: options.quality,
-      format: options.format,
-      workers: options.workers,
-      useGpu: options.gpu,
+    imageTag = ensureDockerImage(dockerVersion, options.quiet);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const isDockerMissing = /connect|not found|ENOENT/i.test(message);
+    errorBox(
+      isDockerMissing ? "Docker not available" : "Docker image build failed",
+      message,
+      isDockerMissing
+        ? "Install Docker: https://docs.docker.com/get-docker/"
+        : "Check Docker is running: docker info",
+    );
+    process.exit(1);
+  }
+
+  const outputDir = dirname(outputPath);
+  const outputFilename = basename(outputPath);
+  const dockerArgs = [
+    "run",
+    "--rm",
+    "--platform",
+    "linux/amd64",
+    "--shm-size=2g",
+    // GPU encoding requires host GPU passthrough
+    ...(options.gpu ? ["--gpus", "all"] : []),
+    "-v",
+    `${resolve(projectDir)}:/project:ro`,
+    "-v",
+    `${resolve(outputDir)}:/output`,
+    imageTag,
+    "/project",
+    "--output",
+    `/output/${outputFilename}`,
+    "--fps",
+    String(options.fps),
+    "--quality",
+    options.quality,
+    "--format",
+    options.format,
+    "--workers",
+    String(options.workers),
+    ...(options.quiet ? ["--quiet"] : []),
+    ...(options.gpu ? ["--gpu"] : []),
+  ];
+
+  if (!options.quiet) {
+    console.log(c.dim("  Running render in Docker container..."));
+    console.log("");
+  }
+
+  try {
+    await new Promise<void>((resolvePromise, reject) => {
+      const child = spawn("docker", dockerArgs, {
+        // When quiet, still show stderr so container errors surface
+        stdio: options.quiet ? ["pipe", "pipe", "inherit"] : "inherit",
+      });
+      child.on("close", (code) => {
+        if (code === 0) resolvePromise();
+        else reject(new Error(`Docker render exited with code ${code}`));
+      });
+      child.on("error", (err) => reject(err));
     });
-    await producer.executeRenderJob(job, projectDir, outputPath);
   } catch (error: unknown) {
     handleRenderError(error, options, startTime, true, "Check Docker is running: docker info");
   }
 
   const elapsed = Date.now() - startTime;
-  trackRenderMetrics(job, elapsed, options, true);
+
+  // Track metrics (no job object available from Docker — use a minimal stub)
+  trackRenderComplete({
+    durationMs: elapsed,
+    fps: options.fps,
+    quality: options.quality,
+    workers: options.workers,
+    docker: true,
+    gpu: options.gpu,
+    ...getMemorySnapshot(),
+  });
+
   printRenderComplete(outputPath, elapsed, options.quiet);
 }
 
@@ -407,9 +554,10 @@ function printRenderComplete(outputPath: string, elapsedMs: number, quiet: boole
   if (quiet) return;
 
   let fileSize = "unknown";
-  if (existsSync(outputPath)) {
-    const stat = statSync(outputPath);
-    fileSize = formatBytes(stat.size);
+  try {
+    fileSize = formatBytes(statSync(outputPath).size);
+  } catch {
+    // file doesn't exist or is inaccessible
   }
 
   const duration = formatDuration(elapsedMs);
