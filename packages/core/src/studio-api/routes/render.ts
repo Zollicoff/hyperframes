@@ -50,7 +50,9 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
       quality?: string;
       format?: string;
     };
-    const format = body.format === "webm" ? "webm" : "mp4";
+    const VALID_FORMATS = new Set(["mp4", "webm", "mov"]);
+    const FORMAT_EXT: Record<string, string> = { mp4: ".mp4", webm: ".webm", mov: ".mov" };
+    const format = VALID_FORMATS.has(body.format ?? "") ? (body.format as string) : "mp4";
     const fps: 24 | 30 | 60 = body.fps === 24 || body.fps === 60 ? body.fps : 30;
     const quality = ["draft", "standard", "high"].includes(body.quality ?? "")
       ? (body.quality as string)
@@ -62,13 +64,13 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     const jobId = `${project.id}_${datePart}_${timePart}`;
     const rendersDir = adapter.rendersDir(project);
     if (!existsSync(rendersDir)) mkdirSync(rendersDir, { recursive: true });
-    const ext = format === "webm" ? ".webm" : ".mp4";
+    const ext = FORMAT_EXT[format] ?? ".mp4";
     const outputPath = join(rendersDir, `${jobId}${ext}`);
 
     const jobState = adapter.startRender({
       project,
       outputPath,
-      format: format as "mp4" | "webm",
+      format: format as "mp4" | "webm" | "mov",
       fps,
       quality,
       jobId,
@@ -126,6 +128,18 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     });
   });
 
+  const RENDER_MIME: Record<string, string> = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+  };
+  const RENDER_EXTENSIONS = Object.keys(RENDER_MIME);
+
+  function renderContentType(filePath: string): string {
+    const ext = RENDER_EXTENSIONS.find((e) => filePath.endsWith(e));
+    return (ext && RENDER_MIME[ext]) ?? "video/mp4";
+  }
+
   // Serve render inline (for in-browser playback — opens in a new tab)
   api.get("/render/:jobId/view", (c) => {
     const { jobId } = c.req.param();
@@ -133,8 +147,7 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     if (!job?.outputPath || !existsSync(job.outputPath)) {
       return c.json({ error: "not found" }, 404);
     }
-    const isWebm = job.outputPath.endsWith(".webm");
-    const contentType = isWebm ? "video/webm" : "video/mp4";
+    const contentType = renderContentType(job.outputPath);
     const filename = job.outputPath.split("/").pop() ?? `render.mp4`;
     const content = readFileSync(job.outputPath);
     return new Response(content, {
@@ -154,8 +167,7 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     if (!job?.outputPath || !existsSync(job.outputPath)) {
       return c.json({ error: "not found" }, 404);
     }
-    const isWebm = job.outputPath.endsWith(".webm");
-    const contentType = isWebm ? "video/webm" : "video/mp4";
+    const contentType = renderContentType(job.outputPath);
     const filename = job.outputPath.split("/").pop() ?? `render.mp4`;
     const content = readFileSync(job.outputPath);
     return new Response(content, {
@@ -172,7 +184,7 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     for (const [, state] of renderJobs) {
       if (state.id === jobId && state.outputPath) {
         const dir = state.outputPath.replace(/\/[^/]+$/, "");
-        for (const ext of [".mp4", ".webm", ".meta.json"]) {
+        for (const ext of [".mp4", ".webm", ".mov", ".meta.json"]) {
           const fp = join(dir, `${jobId}${ext}`);
           if (existsSync(fp)) unlinkSync(fp);
         }
@@ -192,8 +204,7 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     const rendersDir = adapter.rendersDir(project);
     const fp = join(rendersDir, filename);
     if (!existsSync(fp)) return c.json({ error: "not found" }, 404);
-    const isWebm = fp.endsWith(".webm");
-    const contentType = isWebm ? "video/webm" : "video/mp4";
+    const contentType = renderContentType(fp);
     const content = readFileSync(fp);
     return new Response(content, {
       headers: {
@@ -212,11 +223,11 @@ export function registerRenderRoutes(api: Hono, adapter: StudioApiAdapter): void
     const rendersDir = adapter.rendersDir(project);
     if (!existsSync(rendersDir)) return c.json({ renders: [] });
     const files = readdirSync(rendersDir)
-      .filter((f) => f.endsWith(".mp4") || f.endsWith(".webm"))
+      .filter((f) => f.endsWith(".mp4") || f.endsWith(".webm") || f.endsWith(".mov"))
       .map((f) => {
         const fp = join(rendersDir, f);
         const stat = statSync(fp);
-        const rid = f.replace(/\.(mp4|webm)$/, "");
+        const rid = f.replace(/\.(mp4|webm|mov)$/, "");
         const metaPath = join(rendersDir, `${rid}.meta.json`);
         let status: "complete" | "failed" = "complete";
         let durationMs: number | undefined;

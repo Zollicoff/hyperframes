@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync, rmSync } from "node:f
 
 export const examples: Example[] = [
   ["Render to MP4", "hyperframes render --output output.mp4"],
+  ["Render transparent overlay (ProRes)", "hyperframes render --format mov --output overlay.mov"],
   ["Render transparent WebM overlay", "hyperframes render --format webm --output overlay.webm"],
   ["High quality at 60fps", "hyperframes render --fps 60 --quality high --output hd.mp4"],
   ["Deterministic render via Docker", "hyperframes render --docker --output deterministic.mp4"],
@@ -27,7 +28,8 @@ import type { RenderJob } from "@hyperframes/producer";
 
 const VALID_FPS = new Set([24, 30, 60]);
 const VALID_QUALITY = new Set(["draft", "standard", "high"]);
-const VALID_FORMAT = new Set(["mp4", "webm"]);
+const VALID_FORMAT = new Set(["mp4", "webm", "mov"]);
+const FORMAT_EXT: Record<string, string> = { mp4: ".mp4", webm: ".webm", mov: ".mov" };
 
 const CPU_CORE_COUNT = cpus().length;
 
@@ -39,7 +41,7 @@ function defaultWorkerCount(): number {
 export default defineCommand({
   meta: {
     name: "render",
-    description: "Render a composition to MP4 or WebM",
+    description: "Render a composition to MP4, WebM, or MOV",
   },
   args: {
     dir: {
@@ -63,7 +65,7 @@ export default defineCommand({
     },
     format: {
       type: "string",
-      description: "Output format: mp4, webm (WebM renders with transparency)",
+      description: "Output format: mp4, webm, mov (MOV/WebM render with transparency)",
       default: "mp4",
     },
     workers: {
@@ -117,10 +119,10 @@ export default defineCommand({
     // ── Validate format ─────────────────────────────────────────────────
     const formatRaw = args.format ?? "mp4";
     if (!VALID_FORMAT.has(formatRaw)) {
-      errorBox("Invalid format", `Got "${formatRaw}". Must be mp4 or webm.`);
+      errorBox("Invalid format", `Got "${formatRaw}". Must be mp4, webm, or mov.`);
       process.exit(1);
     }
-    const format = formatRaw as "mp4" | "webm";
+    const format = formatRaw as "mp4" | "webm" | "mov";
 
     // ── Validate workers ──────────────────────────────────────────────────
     let workers: number | undefined;
@@ -135,7 +137,7 @@ export default defineCommand({
 
     // ── Resolve output path ───────────────────────────────────────────────
     const rendersDir = resolve("renders");
-    const ext = format === "webm" ? ".webm" : ".mp4";
+    const ext = FORMAT_EXT[format] ?? ".mp4";
     const now = new Date();
     const datePart = now.toISOString().slice(0, 10);
     const timePart = now.toTimeString().slice(0, 8).replace(/:/g, "-");
@@ -265,7 +267,7 @@ export default defineCommand({
 interface RenderOptions {
   fps: 24 | 30 | 60;
   quality: "draft" | "standard" | "high";
-  format: "mp4" | "webm";
+  format: "mp4" | "webm" | "mov";
   workers: number;
   gpu: boolean;
   quiet: boolean;
