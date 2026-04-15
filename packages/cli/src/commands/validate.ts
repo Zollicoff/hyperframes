@@ -16,21 +16,85 @@ interface ConsoleEntry {
   line?: number;
 }
 
-/**
- * Bundle the project HTML with the runtime injected, serve it via a minimal
- * static server, open headless Chrome, and collect console errors.
- */
+interface ContrastEntry {
+  time: number;
+  selector: string;
+  text: string;
+  ratio: number;
+  wcagAA: boolean;
+  large: boolean;
+  fg: string;
+  bg: string;
+}
+
+// esbuild's text loader inlines this at build time — no runtime file read.
+// @ts-expect-error — .browser.js files use esbuild text loader, not TS module resolution
+import CONTRAST_AUDIT_SCRIPT from "./contrast-audit.browser.js";
+
+const CONTRAST_SAMPLES = 5;
+const SEEK_SETTLE_MS = 150;
+
+async function getCompositionDuration(page: import("puppeteer-core").Page): Promise<number> {
+  return page.evaluate(() => {
+    if (window.__hf?.duration && window.__hf.duration > 0) return window.__hf.duration;
+    const root = document.querySelector("[data-composition-id][data-duration]");
+    return root ? parseFloat(root.getAttribute("data-duration") ?? "0") : 0;
+  });
+}
+
+async function seekTo(page: import("puppeteer-core").Page, time: number): Promise<void> {
+  await page.evaluate((t: number) => {
+    if (window.__hf && typeof window.__hf.seek === "function") {
+      window.__hf.seek(t);
+      return;
+    }
+    const timelines = (window as unknown as Record<string, unknown>).__timelines as
+      | Record<string, { seek: (t: number) => void }>
+      | undefined;
+    if (timelines) {
+      for (const tl of Object.values(timelines)) {
+        if (typeof tl.seek === "function") tl.seek(t);
+      }
+    }
+  }, time);
+  await new Promise((r) => setTimeout(r, SEEK_SETTLE_MS));
+}
+
+async function runContrastAudit(page: import("puppeteer-core").Page): Promise<ContrastEntry[]> {
+  const duration = await getCompositionDuration(page);
+  if (duration <= 0) return [];
+
+  await page.addScriptTag({ content: CONTRAST_AUDIT_SCRIPT });
+
+  const results: ContrastEntry[] = [];
+  for (let i = 0; i < CONTRAST_SAMPLES; i++) {
+    const t = +(((i + 0.5) / CONTRAST_SAMPLES) * duration).toFixed(3);
+    await seekTo(page, t);
+
+    const screenshot = (await page.screenshot({ encoding: "base64", type: "png" })) as string;
+    const entries = await page.evaluate(
+      (b64: string, time: number) =>
+        typeof (window as unknown as Record<string, unknown>).__contrastAudit === "function"
+          ? ((window as unknown as Record<string, unknown>).__contrastAudit as Function)(b64, time)
+          : [],
+      screenshot,
+      t,
+    );
+    results.push(...(entries as ContrastEntry[]));
+  }
+
+  return results;
+}
+
 async function validateInBrowser(
   projectDir: string,
-  opts: { timeout?: number },
-): Promise<{ errors: ConsoleEntry[]; warnings: ConsoleEntry[] }> {
+  opts: { timeout?: number; contrast?: boolean },
+): Promise<{ errors: ConsoleEntry[]; warnings: ConsoleEntry[]; contrast?: ContrastEntry[] }> {
   const { bundleToSingleHtml } = await import("@hyperframes/core/compiler");
   const { ensureBrowser } = await import("../browser/manager.js");
 
-  // 1. Bundle
   let html = await bundleToSingleHtml(projectDir);
 
-  // Inject local runtime if available
   const runtimePath = resolve(
     __dirname,
     "..",
@@ -48,7 +112,6 @@ async function validateInBrowser(
     );
   }
 
-  // 2. Start minimal file server for project assets (audio, images, fonts, json)
   const { createServer } = await import("node:http");
   const { getMimeType } = await import("@hyperframes/core/studio-api");
 
@@ -59,7 +122,6 @@ async function validateInBrowser(
       res.end(html);
       return;
     }
-    // Serve project files
     const filePath = join(projectDir, decodeURIComponent(url));
     if (existsSync(filePath)) {
       res.writeHead(200, { "Content-Type": getMimeType(filePath) });
@@ -79,9 +141,9 @@ async function validateInBrowser(
 
   const errors: ConsoleEntry[] = [];
   const warnings: ConsoleEntry[] = [];
+  let contrast: ContrastEntry[] | undefined;
 
   try {
-    // 3. Launch headless Chrome
     const browser = await ensureBrowser();
     const puppeteer = await import("puppeteer-core");
     const chromeBrowser = await puppeteer.default.launch({
@@ -93,14 +155,11 @@ async function validateInBrowser(
     const page = await chromeBrowser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
 
-    // 4. Capture console messages
     page.on("console", (msg) => {
       const type = msg.type();
       const loc = msg.location();
       const text = msg.text();
       if (type === "error") {
-        // Network errors show as console errors but with no useful location.
-        // We capture those separately via response/requestfailed events.
         if (text.startsWith("Failed to load resource")) return;
         errors.push({ level: "error", text, url: loc.url, line: loc.lineNumber });
       } else if (type === "warn") {
@@ -108,52 +167,54 @@ async function validateInBrowser(
       }
     });
 
-    // Capture uncaught exceptions
     page.on("pageerror", (err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      errors.push({ level: "error", text: message });
+      errors.push({ level: "error", text: err instanceof Error ? err.message : String(err) });
     });
 
-    // Capture failed network requests for project assets (skip favicon, data: URIs)
     page.on("requestfailed", (req) => {
       const url = req.url();
-      if (url.includes("favicon")) return;
-      if (url.startsWith("data:")) return;
-      // Extract the path relative to the server
-      const urlObj = new URL(url);
-      const path = decodeURIComponent(urlObj.pathname).replace(/^\//, "");
-      const failure = req.failure()?.errorText ?? "net::ERR_FAILED";
-      errors.push({ level: "error", text: `Failed to load ${path}: ${failure}`, url });
+      if (url.includes("favicon") || url.startsWith("data:")) return;
+      const path = decodeURIComponent(new URL(url).pathname).replace(/^\//, "");
+      errors.push({
+        level: "error",
+        text: `Failed to load ${path}: ${req.failure()?.errorText ?? "net::ERR_FAILED"}`,
+        url,
+      });
     });
 
-    // Capture HTTP errors (404, 500, etc.) for project assets
     page.on("response", (res) => {
-      const status = res.status();
-      if (status >= 400) {
+      if (res.status() >= 400) {
         const url = res.url();
         if (url.includes("favicon")) return;
-        const urlObj = new URL(url);
-        const path = decodeURIComponent(urlObj.pathname).replace(/^\//, "");
-        errors.push({ level: "error", text: `${status} loading ${path}`, url });
+        const path = decodeURIComponent(new URL(url).pathname).replace(/^\//, "");
+        errors.push({ level: "error", text: `${res.status()} loading ${path}`, url });
       }
     });
 
-    // 5. Navigate and wait
-    const timeoutMs = opts.timeout ?? 3000;
-    await page.goto(`http://127.0.0.1:${port}/`, {
-      waitUntil: "domcontentloaded",
-      timeout: 10000,
-    });
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 10000 });
+    await new Promise((r) => setTimeout(r, opts.timeout ?? 3000));
 
-    // Wait for scripts to settle
-    await new Promise((r) => setTimeout(r, timeoutMs));
+    if (opts.contrast) {
+      contrast = await runContrastAudit(page);
+    }
 
     await chromeBrowser.close();
   } finally {
     server.close();
   }
 
-  return { errors, warnings };
+  return { errors, warnings, contrast };
+}
+
+function printContrastFailures(failures: ContrastEntry[]) {
+  console.log();
+  console.log(`  ${c.warn("⚠")} WCAG AA contrast warnings (${failures.length}):`);
+  for (const cf of failures) {
+    const threshold = cf.large ? "3" : "4.5";
+    console.log(
+      `    ${c.warn("·")} ${cf.selector} ${c.dim(`"${cf.text}"`)} — ${c.warn(cf.ratio + ":1")} ${c.dim(`(need ${threshold}:1, t=${cf.time}s)`)}`,
+    );
+  }
 }
 
 export default defineCommand({
@@ -168,15 +229,12 @@ Examples:
   hyperframes validate --timeout 5000`,
   },
   args: {
-    dir: {
-      type: "positional",
-      description: "Project directory",
-      required: false,
-    },
-    json: {
+    dir: { type: "positional", description: "Project directory", required: false },
+    json: { type: "boolean", description: "Output as JSON", default: false },
+    contrast: {
       type: "boolean",
-      description: "Output as JSON",
-      default: false,
+      description: "WCAG contrast audit (enabled by default)",
+      default: true,
     },
     timeout: {
       type: "string",
@@ -187,13 +245,20 @@ Examples:
   async run({ args }) {
     const project = resolveProject(args.dir);
     const timeout = parseInt(args.timeout as string, 10) || 3000;
+    const useContrast = args.contrast ?? true;
 
     if (!args.json) {
       console.log(`${c.accent("◆")}  Validating ${c.accent(project.name)} in headless Chrome`);
     }
 
     try {
-      const { errors, warnings } = await validateInBrowser(project.dir, { timeout });
+      const { errors, warnings, contrast } = await validateInBrowser(project.dir, {
+        timeout,
+        contrast: useContrast,
+      });
+
+      const contrastFailures = (contrast ?? []).filter((e) => !e.wcagAA);
+      const contrastPassed = (contrast ?? []).filter((e) => e.wcagAA);
 
       if (args.json) {
         console.log(
@@ -202,6 +267,8 @@ Examples:
               ok: errors.length === 0,
               errors,
               warnings,
+              contrast,
+              contrastFailures: contrastFailures.length,
             }),
             null,
             2,
@@ -210,22 +277,26 @@ Examples:
         process.exit(errors.length > 0 ? 1 : 0);
       }
 
-      if (errors.length === 0 && warnings.length === 0) {
-        console.log(`${c.success("◇")}  No console errors`);
+      if (errors.length === 0 && warnings.length === 0 && contrastFailures.length === 0) {
+        const suffix =
+          contrastPassed.length > 0 ? ` · ${contrastPassed.length} text elements pass WCAG AA` : "";
+        console.log(`${c.success("◇")}  No console errors${suffix}`);
         return;
       }
 
       console.log();
       for (const e of errors) {
-        const loc = e.line ? ` (line ${e.line})` : "";
-        console.log(`  ${c.error("✗")} ${e.text}${c.dim(loc)}`);
+        console.log(`  ${c.error("✗")} ${e.text}${e.line ? c.dim(` (line ${e.line})`) : ""}`);
       }
       for (const w of warnings) {
-        const loc = w.line ? ` (line ${w.line})` : "";
-        console.log(`  ${c.warn("⚠")} ${w.text}${c.dim(loc)}`);
+        console.log(`  ${c.warn("⚠")} ${w.text}${w.line ? c.dim(` (line ${w.line})`) : ""}`);
       }
+      if (contrastFailures.length > 0) printContrastFailures(contrastFailures);
+
       console.log();
-      console.log(`${c.accent("◇")}  ${errors.length} error(s), ${warnings.length} warning(s)`);
+      const parts = [`${errors.length} error(s)`, `${warnings.length} warning(s)`];
+      if (contrastFailures.length > 0) parts.push(`${contrastFailures.length} contrast warning(s)`);
+      console.log(`${c.accent("◇")}  ${parts.join(", ")}`);
 
       process.exit(errors.length > 0 ? 1 : 0);
     } catch (err: unknown) {
