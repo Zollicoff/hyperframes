@@ -282,113 +282,183 @@ export function decodePngToRgb48le(buf: Buffer): { width: number; height: number
   return { width, height, data: output };
 }
 
-// ── sRGB → HLG color conversion ───────────────────────────────────────────────
+// ── sRGB → HDR color conversion ───────────────────────────────────────────────
 
 /**
- * 256-entry LUT: sRGB 8-bit value → HLG 16-bit signal value.
+ * Build a 256-entry LUT: sRGB 8-bit value → HDR 16-bit signal value.
  *
- * Converts DOM overlay pixels (Chrome sRGB) to HLG signal space so they
- * composite correctly into the HLG/BT.2020 output without color shift.
+ * Pipeline per channel: sRGB EOTF (decode gamma) → linear → HDR OETF → 16-bit.
  *
- * Pipeline per channel: sRGB EOTF (decode gamma) → linear → HLG OETF → 16-bit.
- *
- * Note: this converts the transfer function (gamma) but not the color primaries
- * (bt709 → bt2020). For neutral/near-neutral content (text, UI elements) the
- * gamut difference is negligible. Saturated sRGB colors may shift slightly.
+ * Note: converts the transfer function but not the color primaries (bt709 → bt2020).
+ * For neutral/near-neutral content (text, UI) the gamut difference is negligible.
  */
-function buildSrgbToHlgLut(): Uint16Array {
+function buildSrgbToHdrLut(transfer: "hlg" | "pq"): Uint16Array {
   const lut = new Uint16Array(256);
 
   // HLG OETF constants (Rec. 2100)
-  const a = 0.17883277;
-  const b = 1 - 4 * a;
-  const c = 0.5 - a * Math.log(4 * a);
+  const hlgA = 0.17883277;
+  const hlgB = 1 - 4 * hlgA;
+  const hlgC = 0.5 - hlgA * Math.log(4 * hlgA);
+
+  // PQ (SMPTE 2084) OETF constants
+  const pqM1 = 0.1593017578125;
+  const pqM2 = 78.84375;
+  const pqC1 = 0.8359375;
+  const pqC2 = 18.8515625;
+  const pqC3 = 18.6875;
+  const pqMaxNits = 10000.0;
+  const sdrNits = 203.0;
 
   for (let i = 0; i < 256; i++) {
-    // sRGB EOTF: signal → linear
+    // sRGB EOTF: signal → linear (range 0–1, relative to SDR white)
     const v = i / 255;
     const linear = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
 
-    // HLG OETF: linear → HLG signal
-    const hlg = linear <= 1 / 12 ? Math.sqrt(3 * linear) : a * Math.log(12 * linear - b) + c;
+    let signal: number;
+    if (transfer === "hlg") {
+      signal =
+        linear <= 1 / 12 ? Math.sqrt(3 * linear) : hlgA * Math.log(12 * linear - hlgB) + hlgC;
+    } else {
+      // PQ OETF: linear light (in SDR nits) → PQ signal
+      const Lp = Math.max(0, (linear * sdrNits) / pqMaxNits);
+      const Lm1 = Math.pow(Lp, pqM1);
+      signal = Math.pow((pqC1 + pqC2 * Lm1) / (1.0 + pqC3 * Lm1), pqM2);
+    }
 
-    lut[i] = Math.min(65535, Math.round(hlg * 65535));
+    lut[i] = Math.min(65535, Math.round(signal * 65535));
   }
 
   return lut;
 }
 
-const SRGB_TO_HLG = buildSrgbToHlgLut();
+const SRGB_TO_HLG = buildSrgbToHdrLut("hlg");
+const SRGB_TO_PQ = buildSrgbToHdrLut("pq");
+
+/** Select the correct sRGB→HDR LUT for the given transfer function. */
+export function getSrgbToHdrLut(transfer: "hlg" | "pq"): Uint16Array {
+  return transfer === "pq" ? SRGB_TO_PQ : SRGB_TO_HLG;
+}
 
 // ── Alpha compositing ─────────────────────────────────────────────────────────
 
 /**
- * Alpha-composite a DOM RGBA overlay (8-bit sRGB) onto an HDR frame
- * (rgb48le, HLG-encoded) in memory.
+ * Alpha-composite a DOM RGBA overlay (8-bit sRGB) onto an HDR canvas
+ * (rgb48le) in-place.
  *
- * DOM pixels are converted from sRGB to HLG signal space before blending
- * so the composited output is uniformly HLG-encoded. Without this conversion,
- * sRGB content (text, SDR video rendered by Chrome) would have incorrect
- * gamma and appear orange/washed in HDR playback.
+ * DOM pixels are converted from sRGB to the target HDR signal space (HLG or PQ)
+ * before blending so the composited output is uniformly encoded. Without this
+ * conversion, sRGB content appears orange/washed in HDR playback.
  *
- * For each pixel:
- *   - If DOM alpha == 0 → copy HDR pixel unchanged
- *   - If DOM alpha == 255 → use DOM pixel (sRGB→HLG converted)
- *   - Otherwise → blend converted DOM with HDR in HLG signal domain
- *
- * @param domRgba  Raw RGBA pixel data from decodePng() — width*height*4 bytes
- * @param hdrRgb48 HDR frame in rgb48le format — width*height*6 bytes
- * @returns New rgb48le buffer with DOM composited on top (HLG-encoded)
+ * @param domRgba   Raw RGBA pixel data from decodePng() — width*height*4 bytes
+ * @param canvas    HDR canvas in rgb48le format — width*height*6 bytes, mutated in-place
+ * @param width     Canvas width in pixels
+ * @param height    Canvas height in pixels
+ * @param transfer  HDR transfer function — selects the correct sRGB→HDR LUT
  */
 export function blitRgba8OverRgb48le(
   domRgba: Uint8Array,
-  hdrRgb48: Buffer,
+  canvas: Buffer,
   width: number,
   height: number,
-): Buffer {
+  transfer: "hlg" | "pq" = "hlg",
+): void {
   const pixelCount = width * height;
-  const out = Buffer.allocUnsafe(pixelCount * 6);
-  const lut = SRGB_TO_HLG;
+  const lut = transfer === "pq" ? SRGB_TO_PQ : SRGB_TO_HLG;
 
   for (let i = 0; i < pixelCount; i++) {
     const da = domRgba[i * 4 + 3] ?? 0;
 
     if (da === 0) {
-      // Fully transparent DOM pixel — copy HDR unchanged
-      out[i * 6 + 0] = hdrRgb48[i * 6 + 0] ?? 0;
-      out[i * 6 + 1] = hdrRgb48[i * 6 + 1] ?? 0;
-      out[i * 6 + 2] = hdrRgb48[i * 6 + 2] ?? 0;
-      out[i * 6 + 3] = hdrRgb48[i * 6 + 3] ?? 0;
-      out[i * 6 + 4] = hdrRgb48[i * 6 + 4] ?? 0;
-      out[i * 6 + 5] = hdrRgb48[i * 6 + 5] ?? 0;
+      continue;
     } else if (da === 255) {
-      // Fully opaque DOM pixel — convert sRGB → HLG
       const r16 = lut[domRgba[i * 4 + 0] ?? 0] ?? 0;
       const g16 = lut[domRgba[i * 4 + 1] ?? 0] ?? 0;
       const b16 = lut[domRgba[i * 4 + 2] ?? 0] ?? 0;
-      out.writeUInt16LE(r16, i * 6);
-      out.writeUInt16LE(g16, i * 6 + 2);
-      out.writeUInt16LE(b16, i * 6 + 4);
+      canvas.writeUInt16LE(r16, i * 6);
+      canvas.writeUInt16LE(g16, i * 6 + 2);
+      canvas.writeUInt16LE(b16, i * 6 + 4);
     } else {
-      // Partial alpha — convert sRGB→HLG then blend in HLG signal domain
       const alpha = da / 255;
       const invAlpha = 1 - alpha;
 
-      // Read HDR pixel (little-endian uint16, already HLG-encoded)
-      const hdrR = (hdrRgb48[i * 6 + 0] ?? 0) | ((hdrRgb48[i * 6 + 1] ?? 0) << 8);
-      const hdrG = (hdrRgb48[i * 6 + 2] ?? 0) | ((hdrRgb48[i * 6 + 3] ?? 0) << 8);
-      const hdrB = (hdrRgb48[i * 6 + 4] ?? 0) | ((hdrRgb48[i * 6 + 5] ?? 0) << 8);
+      const hdrR = (canvas[i * 6 + 0] ?? 0) | ((canvas[i * 6 + 1] ?? 0) << 8);
+      const hdrG = (canvas[i * 6 + 2] ?? 0) | ((canvas[i * 6 + 3] ?? 0) << 8);
+      const hdrB = (canvas[i * 6 + 4] ?? 0) | ((canvas[i * 6 + 5] ?? 0) << 8);
 
-      // Convert DOM sRGB → HLG signal
       const domR = lut[domRgba[i * 4 + 0] ?? 0] ?? 0;
       const domG = lut[domRgba[i * 4 + 1] ?? 0] ?? 0;
       const domB = lut[domRgba[i * 4 + 2] ?? 0] ?? 0;
 
-      out.writeUInt16LE(Math.round(domR * alpha + hdrR * invAlpha), i * 6);
-      out.writeUInt16LE(Math.round(domG * alpha + hdrG * invAlpha), i * 6 + 2);
-      out.writeUInt16LE(Math.round(domB * alpha + hdrB * invAlpha), i * 6 + 4);
+      canvas.writeUInt16LE(Math.round(domR * alpha + hdrR * invAlpha), i * 6);
+      canvas.writeUInt16LE(Math.round(domG * alpha + hdrG * invAlpha), i * 6 + 2);
+      canvas.writeUInt16LE(Math.round(domB * alpha + hdrB * invAlpha), i * 6 + 4);
     }
   }
+}
 
-  return out;
+// ── Positioned HDR region copy ────────────────────────────────────────────────
+
+/**
+ * Copy a rectangular region of an rgb48le source onto an rgb48le canvas
+ * at position (dx, dy). Clips to canvas bounds. Optional opacity blending
+ * (0.0–1.0) over existing canvas content.
+ *
+ * @param canvas  Destination rgb48le buffer (canvasWidth * canvasHeight * 6 bytes)
+ * @param source  Source rgb48le buffer (sw * sh * 6 bytes)
+ * @param dx      Destination X offset on canvas
+ * @param dy      Destination Y offset on canvas
+ * @param sw      Source width in pixels
+ * @param sh      Source height in pixels
+ * @param canvasWidth  Canvas width in pixels (needed for stride calculation)
+ * @param opacity  Optional opacity 0.0–1.0 (default 1.0 = fully opaque copy)
+ */
+export function blitRgb48leRegion(
+  canvas: Buffer,
+  source: Buffer,
+  dx: number,
+  dy: number,
+  sw: number,
+  sh: number,
+  canvasWidth: number,
+  opacity?: number,
+): void {
+  if (sw <= 0 || sh <= 0) return;
+
+  const op = opacity ?? 1.0;
+  const canvasHeight = canvas.length / (canvasWidth * 6);
+
+  const x0 = Math.max(0, dx);
+  const y0 = Math.max(0, dy);
+  const x1 = Math.min(canvasWidth, dx + sw);
+  const y1 = Math.min(canvasHeight, dy + sh);
+  if (x0 >= x1 || y0 >= y1) return;
+
+  const clippedW = x1 - x0;
+  const srcOffsetX = x0 - dx;
+  const srcOffsetY = y0 - dy;
+
+  if (op >= 0.999) {
+    for (let y = 0; y < y1 - y0; y++) {
+      const srcRowOff = ((srcOffsetY + y) * sw + srcOffsetX) * 6;
+      const dstRowOff = ((y0 + y) * canvasWidth + x0) * 6;
+      source.copy(canvas, dstRowOff, srcRowOff, srcRowOff + clippedW * 6);
+    }
+  } else {
+    const invOp = 1 - op;
+    for (let y = 0; y < y1 - y0; y++) {
+      for (let x = 0; x < clippedW; x++) {
+        const srcOff = ((srcOffsetY + y) * sw + srcOffsetX + x) * 6;
+        const dstOff = ((y0 + y) * canvasWidth + x0 + x) * 6;
+        const sr = source.readUInt16LE(srcOff);
+        const sg = source.readUInt16LE(srcOff + 2);
+        const sb = source.readUInt16LE(srcOff + 4);
+        const dr = canvas.readUInt16LE(dstOff);
+        const dg = canvas.readUInt16LE(dstOff + 2);
+        const db = canvas.readUInt16LE(dstOff + 4);
+        canvas.writeUInt16LE(Math.round(sr * op + dr * invOp), dstOff);
+        canvas.writeUInt16LE(Math.round(sg * op + dg * invOp), dstOff + 2);
+        canvas.writeUInt16LE(Math.round(sb * op + db * invOp), dstOff + 4);
+      }
+    }
+  }
 }
