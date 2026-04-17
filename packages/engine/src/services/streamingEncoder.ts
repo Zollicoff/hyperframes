@@ -121,7 +121,13 @@ function buildStreamingArgs(
   // Input args: pipe from stdin
   const args: string[] = [];
   if (options.rawInputFormat) {
-    // Raw pixel input (HDR PQ-encoded rgb48le)
+    // Raw pixel input (HLG/PQ-encoded rgb48le from FFmpeg extraction).
+    // Tag the input with the correct color space so FFmpeg uses the right
+    // YUV matrix when converting rgb48le → yuv420p10le for encoding.
+    // Without these tags FFmpeg assumes bt709 and applies the wrong matrix.
+    const hdrTransfer = options.hdr?.transfer;
+    const inputColorTrc =
+      hdrTransfer === "pq" ? "smpte2084" : hdrTransfer === "hlg" ? "arib-std-b67" : undefined;
     args.push(
       "-f",
       "rawvideo",
@@ -131,9 +137,18 @@ function buildStreamingArgs(
       `${options.width}x${options.height}`,
       "-framerate",
       String(fps),
-      "-i",
-      "-",
     );
+    if (inputColorTrc) {
+      args.push(
+        "-color_primaries",
+        "bt2020",
+        "-color_trc",
+        inputColorTrc,
+        "-colorspace",
+        "bt2020nc",
+      );
+    }
+    args.push("-i", "-");
   } else {
     const inputCodec = imageFormat === "png" ? "png" : "mjpeg";
     args.push("-f", "image2pipe", "-vcodec", inputCodec, "-framerate", String(fps), "-i", "-");
