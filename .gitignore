@@ -50,3 +50,6 @@ my-video/
 packages/studio/data/
 .desloppify/
 .worktrees/
+
+# Git worktrees
+.worktrees/
