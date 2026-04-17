@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { deflateSync } from "zlib";
-import { decodePng, blitRgba8OverRgb48le, blitRgb48leRegion } from "./alphaBlit.js";
+import {
+  decodePng,
+  blitRgba8OverRgb48le,
+  blitRgb48leRegion,
+  blitRgb48leAffine,
+  parseTransformMatrix,
+} from "./alphaBlit.js";
 
 // ── PNG construction helpers ─────────────────────────────────────────────────
 
@@ -353,6 +359,115 @@ describe("blitRgb48leRegion", () => {
     const source = makeHdrFrame(2, 2, 10000, 20000, 30000);
     blitRgb48leRegion(canvas, source, 0, 0, 0, 0, 4);
     expect(canvas.readUInt16LE(0)).toBe(0);
+  });
+});
+
+// ── parseTransformMatrix tests ───────────────────────────────────────────────
+
+describe("parseTransformMatrix", () => {
+  it("returns null for 'none'", () => {
+    expect(parseTransformMatrix("none")).toBeNull();
+  });
+
+  it("parses identity matrix", () => {
+    const m = parseTransformMatrix("matrix(1, 0, 0, 1, 0, 0)");
+    expect(m).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it("parses scale + translate", () => {
+    const m = parseTransformMatrix("matrix(0.85, 0, 0, 0.85, 100, 50)");
+    expect(m).toEqual([0.85, 0, 0, 0.85, 100, 50]);
+  });
+
+  it("parses rotation (45 degrees)", () => {
+    const cos = Math.cos(Math.PI / 4);
+    const sin = Math.sin(Math.PI / 4);
+    const m = parseTransformMatrix(`matrix(${cos}, ${sin}, ${-sin}, ${cos}, 0, 0)`);
+    expect(m).not.toBeNull();
+    if (!m) return;
+    expect(m[0]).toBeCloseTo(cos, 10);
+    expect(m[1]).toBeCloseTo(sin, 10);
+  });
+
+  it("parses negative values", () => {
+    const m = parseTransformMatrix("matrix(-1, 0, 0, -1, -50, -100)");
+    expect(m).toEqual([-1, 0, 0, -1, -50, -100]);
+  });
+
+  it("returns null for empty string", () => {
+    expect(parseTransformMatrix("")).toBeNull();
+  });
+
+  it("returns null for unsupported 3d matrix", () => {
+    expect(parseTransformMatrix("matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)")).toBeNull();
+  });
+});
+
+// ── blitRgb48leAffine tests ─────────────────────────────────────────────────
+
+describe("blitRgb48leAffine", () => {
+  it("identity matrix produces same result as blitRgb48leRegion", () => {
+    const canvas1 = Buffer.alloc(4 * 4 * 6);
+    const canvas2 = Buffer.alloc(4 * 4 * 6);
+    const source = makeHdrFrame(2, 2, 10000, 20000, 30000);
+    const identity = [1, 0, 0, 1, 0, 0];
+
+    blitRgb48leRegion(canvas1, source, 0, 0, 2, 2, 4);
+    blitRgb48leAffine(canvas2, source, identity, 2, 2, 4, 4);
+
+    expect(Buffer.compare(canvas1, canvas2)).toBe(0);
+  });
+
+  it("translation moves pixels", () => {
+    const canvas = Buffer.alloc(4 * 4 * 6);
+    const source = makeHdrFrame(1, 1, 50000, 40000, 30000);
+    const translate = [1, 0, 0, 1, 2, 1];
+    blitRgb48leAffine(canvas, source, translate, 1, 1, 4, 4);
+
+    expect(canvas.readUInt16LE(0)).toBe(0);
+    const off = (1 * 4 + 2) * 6;
+    expect(canvas.readUInt16LE(off)).toBe(50000);
+  });
+
+  it("scale down by 0.5 shrinks the output", () => {
+    const canvas = Buffer.alloc(4 * 4 * 6);
+    const source = makeHdrFrame(4, 4, 40000, 30000, 20000);
+    const scale = [0.5, 0, 0, 0.5, 0, 0];
+    blitRgb48leAffine(canvas, source, scale, 4, 4, 4, 4);
+
+    expect(canvas.readUInt16LE(0)).toBeGreaterThan(0);
+    expect(canvas.readUInt16LE((1 * 4 + 1) * 6)).toBeGreaterThan(0);
+    expect(canvas.readUInt16LE(2 * 6)).toBe(0);
+  });
+
+  it("scale up by 2 enlarges the output", () => {
+    const canvas = Buffer.alloc(4 * 4 * 6);
+    const source = makeHdrFrame(2, 2, 40000, 30000, 20000);
+    const scale = [2, 0, 0, 2, 0, 0];
+    blitRgb48leAffine(canvas, source, scale, 2, 2, 4, 4);
+
+    for (let i = 0; i < 16; i++) {
+      expect(canvas.readUInt16LE(i * 6)).toBeGreaterThan(0);
+    }
+  });
+
+  it("opacity blends with canvas", () => {
+    const canvas = makeHdrFrame(1, 1, 20000, 20000, 20000);
+    const source = makeHdrFrame(1, 1, 60000, 60000, 60000);
+    const identity = [1, 0, 0, 1, 0, 0];
+    blitRgb48leAffine(canvas, source, identity, 1, 1, 1, 1, 0.5);
+
+    expect(canvas.readUInt16LE(0)).toBe(40000);
+  });
+
+  it("out-of-bounds source coordinates are clipped", () => {
+    const canvas = Buffer.alloc(2 * 2 * 6);
+    const source = makeHdrFrame(1, 1, 50000, 40000, 30000);
+    const translate = [1, 0, 0, 1, 10, 10];
+    blitRgb48leAffine(canvas, source, translate, 1, 1, 2, 2);
+
+    expect(canvas.readUInt16LE(0)).toBe(0);
+    expect(canvas.readUInt16LE(6)).toBe(0);
   });
 });
 

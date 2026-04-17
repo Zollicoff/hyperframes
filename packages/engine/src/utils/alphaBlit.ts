@@ -462,3 +462,158 @@ export function blitRgb48leRegion(
     }
   }
 }
+
+/**
+ * Parse a CSS `matrix(a,b,c,d,e,f)` string into a 6-element array.
+ * Returns null for "none", empty, or unsupported formats (matrix3d).
+ *
+ * The array maps to the CSS matrix: [a, b, c, d, tx, ty] where:
+ *   | a  c  tx |     (a=scaleX, b=skewY, c=skewX, d=scaleY, tx/ty=translate)
+ *   | b  d  ty |
+ *   | 0  0  1  |
+ */
+/**
+ * Apply a 2D affine transform to an rgb48le source and composite onto a canvas.
+ *
+ * For each destination pixel, the inverse transform maps back to source coordinates.
+ * Bilinear interpolation samples the 4 nearest source pixels for smooth scaling/rotation.
+ *
+ * @param canvas     Destination rgb48le buffer, mutated in-place
+ * @param source     Source rgb48le buffer (srcW * srcH * 6 bytes)
+ * @param matrix     CSS transform matrix [a, b, c, d, tx, ty]
+ * @param srcW       Source width in pixels
+ * @param srcH       Source height in pixels
+ * @param canvasW    Canvas width in pixels
+ * @param canvasH    Canvas height in pixels
+ * @param opacity    Optional opacity 0.0–1.0 (default 1.0)
+ */
+export function blitRgb48leAffine(
+  canvas: Buffer,
+  source: Buffer,
+  matrix: number[],
+  srcW: number,
+  srcH: number,
+  canvasW: number,
+  canvasH: number,
+  opacity?: number,
+): void {
+  const a = matrix[0];
+  const b = matrix[1];
+  const c = matrix[2];
+  const d = matrix[3];
+  const tx = matrix[4];
+  const ty = matrix[5];
+  if (
+    a === undefined ||
+    b === undefined ||
+    c === undefined ||
+    d === undefined ||
+    tx === undefined ||
+    ty === undefined
+  )
+    return;
+
+  // Invert the 2x2 part of the affine matrix
+  const det = a * d - b * c;
+  if (Math.abs(det) < 1e-10) return; // degenerate matrix
+
+  const invA = d / det;
+  const invB = -b / det;
+  const invC = -c / det;
+  const invD = a / det;
+  const invTx = -(invA * tx + invC * ty);
+  const invTy = -(invB * tx + invD * ty);
+
+  const op = opacity ?? 1.0;
+  const invOp = 1 - op;
+
+  // Compute bounding box of transformed source on canvas
+  const corners = [
+    [tx, ty],
+    [a * srcW + tx, b * srcW + ty],
+    [c * srcH + tx, d * srcH + ty],
+    [a * srcW + c * srcH + tx, b * srcW + d * srcH + ty],
+  ];
+  let minX = canvasW,
+    maxX = 0,
+    minY = canvasH,
+    maxY = 0;
+  for (const corner of corners) {
+    const cx = corner[0] ?? 0;
+    const cy = corner[1] ?? 0;
+    if (cx < minX) minX = cx;
+    if (cx > maxX) maxX = cx;
+    if (cy < minY) minY = cy;
+    if (cy > maxY) maxY = cy;
+  }
+  const startX = Math.max(0, Math.floor(minX));
+  const endX = Math.min(canvasW, Math.ceil(maxX));
+  const startY = Math.max(0, Math.floor(minY));
+  const endY = Math.min(canvasH, Math.ceil(maxY));
+
+  for (let dy = startY; dy < endY; dy++) {
+    for (let dx = startX; dx < endX; dx++) {
+      const sx = invA * dx + invC * dy + invTx;
+      const sy = invB * dx + invD * dy + invTy;
+
+      if (sx < 0 || sy < 0 || sx >= srcW || sy >= srcH) continue;
+
+      const x0 = Math.floor(sx);
+      const y0 = Math.floor(sy);
+      const fx = sx - x0;
+      const fy = sy - y0;
+      const x1 = Math.min(x0 + 1, srcW - 1);
+      const y1 = Math.min(y0 + 1, srcH - 1);
+
+      const off00 = (y0 * srcW + x0) * 6;
+      const off10 = (y0 * srcW + x1) * 6;
+      const off01 = (y1 * srcW + x0) * 6;
+      const off11 = (y1 * srcW + x1) * 6;
+
+      const w00 = (1 - fx) * (1 - fy);
+      const w10 = fx * (1 - fy);
+      const w01 = (1 - fx) * fy;
+      const w11 = fx * fy;
+
+      const sr =
+        source.readUInt16LE(off00) * w00 +
+        source.readUInt16LE(off10) * w10 +
+        source.readUInt16LE(off01) * w01 +
+        source.readUInt16LE(off11) * w11;
+      const sg =
+        source.readUInt16LE(off00 + 2) * w00 +
+        source.readUInt16LE(off10 + 2) * w10 +
+        source.readUInt16LE(off01 + 2) * w01 +
+        source.readUInt16LE(off11 + 2) * w11;
+      const sb =
+        source.readUInt16LE(off00 + 4) * w00 +
+        source.readUInt16LE(off10 + 4) * w10 +
+        source.readUInt16LE(off01 + 4) * w01 +
+        source.readUInt16LE(off11 + 4) * w11;
+
+      const dstOff = (dy * canvasW + dx) * 6;
+
+      if (op >= 0.999) {
+        canvas.writeUInt16LE(Math.round(sr), dstOff);
+        canvas.writeUInt16LE(Math.round(sg), dstOff + 2);
+        canvas.writeUInt16LE(Math.round(sb), dstOff + 4);
+      } else {
+        const dr = canvas.readUInt16LE(dstOff);
+        const dg = canvas.readUInt16LE(dstOff + 2);
+        const db = canvas.readUInt16LE(dstOff + 4);
+        canvas.writeUInt16LE(Math.round(sr * op + dr * invOp), dstOff);
+        canvas.writeUInt16LE(Math.round(sg * op + dg * invOp), dstOff + 2);
+        canvas.writeUInt16LE(Math.round(sb * op + db * invOp), dstOff + 4);
+      }
+    }
+  }
+}
+
+export function parseTransformMatrix(css: string): number[] | null {
+  if (!css || css === "none") return null;
+  const match = css.match(
+    /^matrix\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,)]+)\s*\)$/,
+  );
+  if (!match) return null;
+  return match.slice(1, 7).map(Number);
+}

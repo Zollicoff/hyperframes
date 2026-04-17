@@ -239,6 +239,7 @@ export interface ElementStackingInfo {
   opacity: number;
   visible: boolean;
   isHdr: boolean;
+  transform: string; // CSS transform matrix string, e.g. "matrix(1,0,0,1,0,0)" or "none"
 }
 
 /**
@@ -274,13 +275,35 @@ export async function queryElementStacking(
       return 0;
     }
 
+    // Walk up the DOM multiplying each ancestor's opacity. GSAP animates
+    // opacity on wrapper divs, not directly on the video element, so the
+    // element's own opacity is often 1.0. Multiplying ancestors gives the
+    // true effective opacity.
+    function getEffectiveOpacity(node: Element): number {
+      let opacity = 1;
+      let current: Element | null = node;
+      while (current) {
+        const cs = window.getComputedStyle(current);
+        const val = parseFloat(cs.opacity);
+        // Note: `val || 1` would turn opacity:0 into 1 (0 is falsy)
+        opacity *= Number.isNaN(val) ? 1 : val;
+        current = current.parentElement;
+      }
+      return opacity;
+    }
+
     for (const el of elements) {
       const id = el.id;
       if (!id) continue;
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);
       const zIndex = getEffectiveZIndex(el);
-      const opacity = parseFloat(style.opacity) || 1;
+      // For HDR video elements, the frame injector sets `opacity: 0 !important`
+      // on the element itself. Start the opacity walk from the parent to get the
+      // real GSAP-animated opacity from wrapper divs.
+      const isHdrEl = hdrSet.has(id);
+      const opacityStartNode = isHdrEl ? el.parentElement : el;
+      const opacity = opacityStartNode ? getEffectiveOpacity(opacityStartNode) : 1;
       const visible =
         style.visibility !== "hidden" &&
         style.display !== "none" &&
@@ -296,6 +319,7 @@ export async function queryElementStacking(
         opacity,
         visible,
         isHdr: hdrSet.has(id),
+        transform: style.transform || "none",
       });
     }
     return results;
