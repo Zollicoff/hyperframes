@@ -3,7 +3,21 @@ import { groupIntoLayers } from "./layerCompositor.js";
 import type { ElementStackingInfo } from "../services/videoFrameInjector.js";
 
 function makeEl(id: string, zIndex: number, isHdr: boolean): ElementStackingInfo {
-  return { id, zIndex, x: 0, y: 0, width: 1920, height: 1080, opacity: 1, visible: true, isHdr };
+  return {
+    id,
+    zIndex,
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+    layoutWidth: 1920,
+    layoutHeight: 1080,
+    opacity: 1,
+    visible: true,
+    isHdr,
+    borderRadius: [0, 0, 0, 0],
+    transform: "none",
+  };
 }
 
 describe("groupIntoLayers", () => {

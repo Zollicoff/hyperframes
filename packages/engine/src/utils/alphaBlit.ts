@@ -20,14 +20,18 @@ function paeth(a: number, b: number, c: number): number {
 }
 
 /**
- * Decode a PNG buffer to raw RGBA pixel data (8-bit per channel).
+ * Shared PNG chunk parsing + filter reconstruction.
  *
- * Supports color type 6 (RGBA) and color type 2 (RGB) at 8-bit depth,
- * non-interlaced. Chrome's Page.captureScreenshot always emits this format.
+ * Verifies the PNG signature, iterates chunks to collect IHDR metadata and IDAT
+ * payloads, decompresses with zlib, and reconstructs all 5 PNG filter types.
  *
- * Returns a Uint8Array of width*height*4 bytes in RGBA order.
+ * Returns the defiltered pixel bytes (no filter-type prefix bytes) along with
+ * IHDR fields so callers can convert to their target pixel format.
  */
-export function decodePng(buf: Buffer): { width: number; height: number; data: Uint8Array } {
+function decodePngRaw(
+  buf: Buffer,
+  caller: string,
+): { width: number; height: number; bitDepth: number; colorType: number; rawPixels: Buffer } {
   // Verify PNG signature
   if (
     buf[0] !== 137 ||
@@ -39,7 +43,7 @@ export function decodePng(buf: Buffer): { width: number; height: number; data: U
     buf[6] !== 26 ||
     buf[7] !== 10
   ) {
-    throw new Error("decodePng: not a PNG file");
+    throw new Error(`${caller}: not a PNG file`);
   }
 
   let pos = 8;
@@ -68,22 +72,20 @@ export function decodePng(buf: Buffer): { width: number; height: number; data: U
     pos += 12 + chunkLen; // length(4) + type(4) + data(chunkLen) + crc(4)
   }
 
-  if (bitDepth !== 8) {
-    throw new Error(`decodePng: unsupported bit depth ${bitDepth} (expected 8)`);
-  }
-  // colorType 6 = RGBA, colorType 2 = RGB
-  if (colorType !== 6 && colorType !== 2) {
-    throw new Error(`decodePng: unsupported color type ${colorType} (expected 2=RGB or 6=RGBA)`);
+  if (colorType !== 2 && colorType !== 6) {
+    throw new Error(`${caller}: unsupported color type ${colorType} (expected 2=RGB or 6=RGBA)`);
   }
 
-  const bpp = colorType === 6 ? 4 : 3; // bytes per pixel in the PNG stream
+  // Bytes per pixel: channels x bytes-per-channel
+  const channels = colorType === 6 ? 4 : 3;
+  const bpp = channels * (bitDepth / 8);
   const stride = width * bpp;
 
   const compressed = Buffer.concat(idatChunks);
   const decompressed = inflateSync(compressed);
 
-  // Reconstruct filtered rows → output RGBA
-  const output = new Uint8Array(width * height * 4);
+  // Reconstruct filtered rows into a flat pixel buffer (no filter bytes)
+  const rawPixels = Buffer.allocUnsafe(height * stride);
   const prevRow = new Uint8Array(stride);
   const currRow = new Uint8Array(stride);
 
@@ -94,29 +96,28 @@ export function decodePng(buf: Buffer): { width: number; height: number; data: U
     const rawRow = decompressed.subarray(srcPos, srcPos + stride);
     srcPos += stride;
 
-    // Apply PNG filter to reconstruct scanline
     switch (filterType) {
       case 0: // None
         currRow.set(rawRow);
         break;
-      case 1: // Sub — difference from left pixel
+      case 1: // Sub
         for (let x = 0; x < stride; x++) {
           currRow[x] = ((rawRow[x] ?? 0) + (x >= bpp ? (currRow[x - bpp] ?? 0) : 0)) & 0xff;
         }
         break;
-      case 2: // Up — difference from above pixel
+      case 2: // Up
         for (let x = 0; x < stride; x++) {
           currRow[x] = ((rawRow[x] ?? 0) + (prevRow[x] ?? 0)) & 0xff;
         }
         break;
-      case 3: // Average — difference from floor((left + above) / 2)
+      case 3: // Average
         for (let x = 0; x < stride; x++) {
           const left = x >= bpp ? (currRow[x - bpp] ?? 0) : 0;
           const up = prevRow[x] ?? 0;
           currRow[x] = ((rawRow[x] ?? 0) + Math.floor((left + up) / 2)) & 0xff;
         }
         break;
-      case 4: // Paeth predictor
+      case 4: // Paeth
         for (let x = 0; x < stride; x++) {
           const left = x >= bpp ? (currRow[x - bpp] ?? 0) : 0;
           const up = prevRow[x] ?? 0;
@@ -125,24 +126,44 @@ export function decodePng(buf: Buffer): { width: number; height: number; data: U
         }
         break;
       default:
-        throw new Error(`decodePng: unknown filter type ${filterType} at row ${y}`);
+        throw new Error(`${caller}: unknown filter type ${filterType} at row ${y}`);
     }
 
-    // Write to output as RGBA (expand RGB→RGBA if colorType=2)
-    const dstBase = y * width * 4;
-    if (colorType === 6) {
-      output.set(currRow, dstBase);
-    } else {
-      // RGB → RGBA: set alpha to 255
-      for (let x = 0; x < width; x++) {
-        output[dstBase + x * 4 + 0] = currRow[x * 3 + 0] ?? 0;
-        output[dstBase + x * 4 + 1] = currRow[x * 3 + 1] ?? 0;
-        output[dstBase + x * 4 + 2] = currRow[x * 3 + 2] ?? 0;
-        output[dstBase + x * 4 + 3] = 255;
-      }
-    }
-
+    rawPixels.set(currRow, y * stride);
     prevRow.set(currRow);
+  }
+
+  return { width, height, bitDepth, colorType, rawPixels };
+}
+
+/**
+ * Decode a PNG buffer to raw RGBA pixel data (8-bit per channel).
+ *
+ * Supports color type 6 (RGBA) and color type 2 (RGB) at 8-bit depth,
+ * non-interlaced. Chrome's Page.captureScreenshot always emits this format.
+ *
+ * Returns a Uint8Array of width*height*4 bytes in RGBA order.
+ */
+export function decodePng(buf: Buffer): { width: number; height: number; data: Uint8Array } {
+  const { width, height, bitDepth, colorType, rawPixels } = decodePngRaw(buf, "decodePng");
+
+  if (bitDepth !== 8) {
+    throw new Error(`decodePng: unsupported bit depth ${bitDepth} (expected 8)`);
+  }
+
+  const output = new Uint8Array(width * height * 4);
+
+  if (colorType === 6) {
+    // RGBA — copy directly
+    output.set(rawPixels);
+  } else {
+    // RGB → RGBA: set alpha to 255
+    for (let i = 0; i < width * height; i++) {
+      output[i * 4 + 0] = rawPixels[i * 3 + 0] ?? 0;
+      output[i * 4 + 1] = rawPixels[i * 3 + 1] ?? 0;
+      output[i * 4 + 2] = rawPixels[i * 3 + 2] ?? 0;
+      output[i * 4 + 3] = 255;
+    }
   }
 
   return { width, height, data: output };
@@ -157,126 +178,34 @@ export function decodePng(buf: Buffer): { width: number; height: number; data: U
  * PNG stores 16-bit values in big-endian; this function swaps to little-endian
  * for the streaming encoder's rgb48le input format.
  *
- * Supports colorType 2 (RGB) at 16-bit depth, non-interlaced.
+ * Supports colorType 2 (RGB) and 6 (RGBA) at 16-bit depth, non-interlaced.
  */
 export function decodePngToRgb48le(buf: Buffer): { width: number; height: number; data: Buffer } {
-  // Verify PNG signature
-  if (
-    buf[0] !== 137 ||
-    buf[1] !== 80 ||
-    buf[2] !== 78 ||
-    buf[3] !== 71 ||
-    buf[4] !== 13 ||
-    buf[5] !== 10 ||
-    buf[6] !== 26 ||
-    buf[7] !== 10
-  ) {
-    throw new Error("decodePngToRgb48le: not a PNG file");
-  }
-
-  let pos = 8;
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colorType = 0;
-  const idatChunks: Buffer[] = [];
-
-  while (pos + 12 <= buf.length) {
-    const chunkLen = buf.readUInt32BE(pos);
-    const chunkType = buf.toString("ascii", pos + 4, pos + 8);
-    const chunkData = buf.subarray(pos + 8, pos + 8 + chunkLen);
-
-    if (chunkType === "IHDR") {
-      width = chunkData.readUInt32BE(0);
-      height = chunkData.readUInt32BE(4);
-      bitDepth = chunkData[8] ?? 0;
-      colorType = chunkData[9] ?? 0;
-    } else if (chunkType === "IDAT") {
-      idatChunks.push(Buffer.from(chunkData));
-    } else if (chunkType === "IEND") {
-      break;
-    }
-
-    pos += 12 + chunkLen;
-  }
+  const { width, height, bitDepth, colorType, rawPixels } = decodePngRaw(buf, "decodePngToRgb48le");
 
   if (bitDepth !== 16) {
     throw new Error(`decodePngToRgb48le: unsupported bit depth ${bitDepth} (expected 16)`);
   }
-  if (colorType !== 2 && colorType !== 6) {
-    throw new Error(
-      `decodePngToRgb48le: unsupported color type ${colorType} (expected 2=RGB or 6=RGBA)`,
-    );
-  }
 
   // 16-bit: 2 bytes per channel. RGB=6 bytes/pixel, RGBA=8 bytes/pixel
   const bpp = colorType === 6 ? 8 : 6;
-  const stride = width * bpp;
 
-  const compressed = Buffer.concat(idatChunks);
-  const decompressed = inflateSync(compressed);
-
-  // Reconstruct filtered rows (filter operates on individual bytes)
-  const currRow = new Uint8Array(stride);
-  const prevRow = new Uint8Array(stride);
-
-  // Output: rgb48le = 3 channels × 2 bytes (LE) = 6 bytes/pixel
+  // Output: rgb48le = 3 channels x 2 bytes (LE) = 6 bytes/pixel
   const output = Buffer.allocUnsafe(width * height * 6);
 
-  let srcPos = 0;
-
   for (let y = 0; y < height; y++) {
-    const filterType = decompressed[srcPos++] ?? 0;
-    const rawRow = decompressed.subarray(srcPos, srcPos + stride);
-    srcPos += stride;
-
-    switch (filterType) {
-      case 0:
-        currRow.set(rawRow);
-        break;
-      case 1:
-        for (let x = 0; x < stride; x++) {
-          currRow[x] = ((rawRow[x] ?? 0) + (x >= bpp ? (currRow[x - bpp] ?? 0) : 0)) & 0xff;
-        }
-        break;
-      case 2:
-        for (let x = 0; x < stride; x++) {
-          currRow[x] = ((rawRow[x] ?? 0) + (prevRow[x] ?? 0)) & 0xff;
-        }
-        break;
-      case 3:
-        for (let x = 0; x < stride; x++) {
-          const left = x >= bpp ? (currRow[x - bpp] ?? 0) : 0;
-          const up = prevRow[x] ?? 0;
-          currRow[x] = ((rawRow[x] ?? 0) + Math.floor((left + up) / 2)) & 0xff;
-        }
-        break;
-      case 4:
-        for (let x = 0; x < stride; x++) {
-          const left = x >= bpp ? (currRow[x - bpp] ?? 0) : 0;
-          const up = prevRow[x] ?? 0;
-          const upLeft = x >= bpp ? (prevRow[x - bpp] ?? 0) : 0;
-          currRow[x] = ((rawRow[x] ?? 0) + paeth(left, up, upLeft)) & 0xff;
-        }
-        break;
-      default:
-        throw new Error(`decodePngToRgb48le: unknown filter type ${filterType} at row ${y}`);
-    }
-
-    // Convert big-endian 16-bit RGB(A) → little-endian rgb48le (drop alpha if RGBA)
     const dstBase = y * width * 6;
+    const srcRowBase = y * width * bpp;
     for (let x = 0; x < width; x++) {
-      const srcBase = x * bpp;
+      const srcBase = srcRowBase + x * bpp;
       // PNG stores 16-bit as big-endian: [high, low]. Swap to little-endian: [low, high].
-      output[dstBase + x * 6 + 0] = currRow[srcBase + 1] ?? 0; // R low
-      output[dstBase + x * 6 + 1] = currRow[srcBase + 0] ?? 0; // R high
-      output[dstBase + x * 6 + 2] = currRow[srcBase + 3] ?? 0; // G low
-      output[dstBase + x * 6 + 3] = currRow[srcBase + 2] ?? 0; // G high
-      output[dstBase + x * 6 + 4] = currRow[srcBase + 5] ?? 0; // B low
-      output[dstBase + x * 6 + 5] = currRow[srcBase + 4] ?? 0; // B high
+      output[dstBase + x * 6 + 0] = rawPixels[srcBase + 1] ?? 0; // R low
+      output[dstBase + x * 6 + 1] = rawPixels[srcBase + 0] ?? 0; // R high
+      output[dstBase + x * 6 + 2] = rawPixels[srcBase + 3] ?? 0; // G low
+      output[dstBase + x * 6 + 3] = rawPixels[srcBase + 2] ?? 0; // G high
+      output[dstBase + x * 6 + 4] = rawPixels[srcBase + 5] ?? 0; // B low
+      output[dstBase + x * 6 + 5] = rawPixels[srcBase + 4] ?? 0; // B high
     }
-
-    prevRow.set(currRow);
   }
 
   return { width, height, data: output };
@@ -363,7 +292,7 @@ export function blitRgba8OverRgb48le(
   transfer: "hlg" | "pq" = "hlg",
 ): void {
   const pixelCount = width * height;
-  const lut = transfer === "pq" ? SRGB_TO_PQ : SRGB_TO_HLG;
+  const lut = getSrgbToHdrLut(transfer);
 
   for (let i = 0; i < pixelCount; i++) {
     const da = domRgba[i * 4 + 3] ?? 0;
@@ -396,6 +325,44 @@ export function blitRgba8OverRgb48le(
   }
 }
 
+// ── Rounded-rectangle mask ───────────────────────────────────────────────────
+
+/** Anti-aliased alpha for a point at distance `dist` from a corner circle of radius `r`. */
+function cornerAlpha(px: number, py: number, cx: number, cy: number, r: number): number {
+  const dx = px - cx;
+  const dy = py - cy;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > r + 0.5) return 0;
+  if (dist > r - 0.5) return r + 0.5 - dist;
+  return 1;
+}
+
+/**
+ * Compute the alpha (0.0–1.0) for a point inside a rounded rectangle.
+ * Returns 1.0 for interior pixels, 0.0 for exterior, and a smooth
+ * transition at the corner edges (1px anti-aliasing).
+ *
+ * @param px     X coordinate (continuous, e.g. pixel center or subpixel)
+ * @param py     Y coordinate
+ * @param w      Rectangle width
+ * @param h      Rectangle height
+ * @param radii  Corner radii [topLeft, topRight, bottomRight, bottomLeft]
+ */
+export function roundedRectAlpha(
+  px: number,
+  py: number,
+  w: number,
+  h: number,
+  radii: [number, number, number, number],
+): number {
+  const [tl, tr, br, bl] = radii;
+  if (px < tl && py < tl) return cornerAlpha(px, py, tl, tl, tl);
+  if (px >= w - tr && py < tr) return cornerAlpha(px, py, w - tr, tr, tr);
+  if (px >= w - br && py >= h - br) return cornerAlpha(px, py, w - br, h - br, br);
+  if (px < bl && py >= h - bl) return cornerAlpha(px, py, bl, h - bl, bl);
+  return 1;
+}
+
 // ── Positioned HDR region copy ────────────────────────────────────────────────
 
 /**
@@ -421,6 +388,7 @@ export function blitRgb48leRegion(
   sh: number,
   canvasWidth: number,
   opacity?: number,
+  borderRadius?: [number, number, number, number],
 ): void {
   if (sw <= 0 || sh <= 0) return;
 
@@ -437,41 +405,46 @@ export function blitRgb48leRegion(
   const srcOffsetX = x0 - dx;
   const srcOffsetY = y0 - dy;
 
-  if (op >= 0.999) {
+  const hasMask = borderRadius !== undefined;
+
+  if (op >= 0.999 && !hasMask) {
     for (let y = 0; y < y1 - y0; y++) {
       const srcRowOff = ((srcOffsetY + y) * sw + srcOffsetX) * 6;
       const dstRowOff = ((y0 + y) * canvasWidth + x0) * 6;
       source.copy(canvas, dstRowOff, srcRowOff, srcRowOff + clippedW * 6);
     }
   } else {
-    const invOp = 1 - op;
     for (let y = 0; y < y1 - y0; y++) {
       for (let x = 0; x < clippedW; x++) {
+        let effectiveOp = op;
+        if (hasMask) {
+          const ma = roundedRectAlpha(srcOffsetX + x, srcOffsetY + y, sw, sh, borderRadius);
+          if (ma <= 0) continue;
+          effectiveOp *= ma;
+        }
+
         const srcOff = ((srcOffsetY + y) * sw + srcOffsetX + x) * 6;
         const dstOff = ((y0 + y) * canvasWidth + x0 + x) * 6;
-        const sr = source.readUInt16LE(srcOff);
-        const sg = source.readUInt16LE(srcOff + 2);
-        const sb = source.readUInt16LE(srcOff + 4);
-        const dr = canvas.readUInt16LE(dstOff);
-        const dg = canvas.readUInt16LE(dstOff + 2);
-        const db = canvas.readUInt16LE(dstOff + 4);
-        canvas.writeUInt16LE(Math.round(sr * op + dr * invOp), dstOff);
-        canvas.writeUInt16LE(Math.round(sg * op + dg * invOp), dstOff + 2);
-        canvas.writeUInt16LE(Math.round(sb * op + db * invOp), dstOff + 4);
+
+        if (effectiveOp >= 0.999) {
+          source.copy(canvas, dstOff, srcOff, srcOff + 6);
+        } else {
+          const invEff = 1 - effectiveOp;
+          const sr = source.readUInt16LE(srcOff);
+          const sg = source.readUInt16LE(srcOff + 2);
+          const sb = source.readUInt16LE(srcOff + 4);
+          const dr = canvas.readUInt16LE(dstOff);
+          const dg = canvas.readUInt16LE(dstOff + 2);
+          const db = canvas.readUInt16LE(dstOff + 4);
+          canvas.writeUInt16LE(Math.round(sr * effectiveOp + dr * invEff), dstOff);
+          canvas.writeUInt16LE(Math.round(sg * effectiveOp + dg * invEff), dstOff + 2);
+          canvas.writeUInt16LE(Math.round(sb * effectiveOp + db * invEff), dstOff + 4);
+        }
       }
     }
   }
 }
 
-/**
- * Parse a CSS `matrix(a,b,c,d,e,f)` string into a 6-element array.
- * Returns null for "none", empty, or unsupported formats (matrix3d).
- *
- * The array maps to the CSS matrix: [a, b, c, d, tx, ty] where:
- *   | a  c  tx |     (a=scaleX, b=skewY, c=skewX, d=scaleY, tx/ty=translate)
- *   | b  d  ty |
- *   | 0  0  1  |
- */
 /**
  * Apply a 2D affine transform to an rgb48le source and composite onto a canvas.
  *
@@ -496,6 +469,7 @@ export function blitRgb48leAffine(
   canvasW: number,
   canvasH: number,
   opacity?: number,
+  borderRadius?: [number, number, number, number],
 ): void {
   const a = matrix[0];
   const b = matrix[1];
@@ -525,7 +499,8 @@ export function blitRgb48leAffine(
   const invTy = -(invB * tx + invD * ty);
 
   const op = opacity ?? 1.0;
-  const invOp = 1 - op;
+
+  const hasMask = borderRadius !== undefined;
 
   // Compute bounding box of transformed source on canvas
   const corners = [
@@ -557,6 +532,14 @@ export function blitRgb48leAffine(
       const sy = invB * dx + invD * dy + invTy;
 
       if (sx < 0 || sy < 0 || sx >= srcW || sy >= srcH) continue;
+
+      // Apply rounded-rect mask in source coordinates
+      let effectiveOp = op;
+      if (hasMask) {
+        const ma = roundedRectAlpha(sx, sy, srcW, srcH, borderRadius);
+        if (ma <= 0) continue;
+        effectiveOp *= ma;
+      }
 
       const x0 = Math.floor(sx);
       const y0 = Math.floor(sy);
@@ -593,22 +576,32 @@ export function blitRgb48leAffine(
 
       const dstOff = (dy * canvasW + dx) * 6;
 
-      if (op >= 0.999) {
+      if (effectiveOp >= 0.999) {
         canvas.writeUInt16LE(Math.round(sr), dstOff);
         canvas.writeUInt16LE(Math.round(sg), dstOff + 2);
         canvas.writeUInt16LE(Math.round(sb), dstOff + 4);
       } else {
+        const invEff = 1 - effectiveOp;
         const dr = canvas.readUInt16LE(dstOff);
         const dg = canvas.readUInt16LE(dstOff + 2);
         const db = canvas.readUInt16LE(dstOff + 4);
-        canvas.writeUInt16LE(Math.round(sr * op + dr * invOp), dstOff);
-        canvas.writeUInt16LE(Math.round(sg * op + dg * invOp), dstOff + 2);
-        canvas.writeUInt16LE(Math.round(sb * op + db * invOp), dstOff + 4);
+        canvas.writeUInt16LE(Math.round(sr * effectiveOp + dr * invEff), dstOff);
+        canvas.writeUInt16LE(Math.round(sg * effectiveOp + dg * invEff), dstOff + 2);
+        canvas.writeUInt16LE(Math.round(sb * effectiveOp + db * invEff), dstOff + 4);
       }
     }
   }
 }
 
+/**
+ * Parse a CSS `matrix(a,b,c,d,e,f)` string into a 6-element array.
+ * Returns null for "none", empty, or unsupported formats (matrix3d).
+ *
+ * The array maps to the CSS matrix: [a, b, c, d, tx, ty] where:
+ *   | a  c  tx |     (a=scaleX, b=skewY, c=skewX, d=scaleY, tx/ty=translate)
+ *   | b  d  ty |
+ *   | 0  0  1  |
+ */
 export function parseTransformMatrix(css: string): number[] | null {
   if (!css || css === "none") return null;
   const match = css.match(

@@ -19,7 +19,6 @@ export type CompositeLayer =
  * merge into a single layer. Each HDR video is its own layer.
  *
  * Elements are sorted by zIndex ascending (back to front) before grouping.
- * Invisible elements are filtered out.
  */
 export function groupIntoLayers(elements: ElementStackingInfo[]): CompositeLayer[] {
   // Include ALL elements regardless of visibility. Video elements are hidden by

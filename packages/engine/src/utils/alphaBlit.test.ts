@@ -6,6 +6,7 @@ import {
   blitRgb48leRegion,
   blitRgb48leAffine,
   parseTransformMatrix,
+  roundedRectAlpha,
 } from "./alphaBlit.js";
 
 // ── PNG construction helpers ─────────────────────────────────────────────────
@@ -20,7 +21,7 @@ function crc32(data: Buffer): number {
   let crc = 0xffffffff;
   const table = crc32Table();
   for (let i = 0; i < data.length; i++) {
-    crc = table[((crc ^ data[i]!) & 0xff)!]! ^ (crc >>> 8);
+    crc = (table[(crc ^ (data[i] ?? 0)) & 0xff] ?? 0) ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
@@ -68,7 +69,7 @@ function makePng(width: number, height: number, pixels: number[]): Buffer {
     scanlines.push(0); // filter type None
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      scanlines.push(pixels[i]!, pixels[i + 1]!, pixels[i + 2]!, pixels[i + 3]!);
+      scanlines.push(pixels[i] ?? 0, pixels[i + 1] ?? 0, pixels[i + 2] ?? 0, pixels[i + 3] ?? 0);
     }
   }
 
@@ -515,5 +516,166 @@ describe("decodePng + blitRgba8OverRgb48le integration", () => {
       expect(canvas.readUInt16LE(i * 6 + 2)).toBe(0);
       expect(canvas.readUInt16LE(i * 6 + 4)).toBe(65535);
     }
+  });
+});
+
+// ── roundedRectAlpha tests ──────────────────────────────────────────────────
+
+describe("roundedRectAlpha", () => {
+  const uniform20: [number, number, number, number] = [20, 20, 20, 20];
+
+  it("returns 1 for center pixel", () => {
+    expect(roundedRectAlpha(50, 50, 100, 100, uniform20)).toBe(1);
+  });
+
+  it("returns 1 for pixel well inside edge (not in corner zone)", () => {
+    // On top edge but past the corner zone (x >= radius)
+    expect(roundedRectAlpha(50, 5, 100, 100, uniform20)).toBe(1);
+  });
+
+  it("returns 0 for pixel at the extreme corner (outside rounded area)", () => {
+    // Top-left corner: (0, 0) is far from circle center at (20, 20)
+    // dist = sqrt(400 + 400) = 28.28, well beyond radius 20
+    expect(roundedRectAlpha(0, 0, 100, 100, uniform20)).toBe(0);
+  });
+
+  it("returns 1 for pixel well inside corner circle", () => {
+    // Pixel at (15, 15): dist from center (20, 20) = sqrt(25+25) = 7.07 << 20
+    expect(roundedRectAlpha(15, 15, 100, 100, uniform20)).toBe(1);
+  });
+
+  it("returns fractional alpha at corner edge (anti-aliasing)", () => {
+    // Find a point near the circle edge. radius = 20, center at (20, 20).
+    // Point on the circle: (20 - 20*cos(45°), 20 - 20*sin(45°)) ≈ (5.86, 5.86)
+    // Shift slightly inward for fractional alpha
+    const edgePx = 20 - 20 * Math.cos(Math.PI / 4); // ~5.86
+    const alpha = roundedRectAlpha(edgePx, edgePx, 100, 100, uniform20);
+    expect(alpha).toBeGreaterThan(0);
+    expect(alpha).toBeLessThan(1);
+  });
+
+  it("handles all four corners symmetrically", () => {
+    // Test top-right corner (x near w, y near 0)
+    expect(roundedRectAlpha(100, 0, 100, 100, uniform20)).toBe(0);
+    // Test bottom-right corner
+    expect(roundedRectAlpha(100, 100, 100, 100, uniform20)).toBe(0);
+    // Test bottom-left corner
+    expect(roundedRectAlpha(0, 100, 100, 100, uniform20)).toBe(0);
+  });
+
+  it("returns 1 everywhere for zero radii", () => {
+    const zero: [number, number, number, number] = [0, 0, 0, 0];
+    expect(roundedRectAlpha(0, 0, 100, 100, zero)).toBe(1);
+    expect(roundedRectAlpha(99, 0, 100, 100, zero)).toBe(1);
+    expect(roundedRectAlpha(0, 99, 100, 100, zero)).toBe(1);
+    expect(roundedRectAlpha(99, 99, 100, 100, zero)).toBe(1);
+  });
+
+  it("supports per-corner radii", () => {
+    const mixed: [number, number, number, number] = [20, 0, 10, 0];
+    // Top-left has radius 20 — corner pixel outside
+    expect(roundedRectAlpha(0, 0, 100, 100, mixed)).toBe(0);
+    // Top-right has radius 0 — corner pixel inside
+    expect(roundedRectAlpha(99, 0, 100, 100, mixed)).toBe(1);
+    // Bottom-right has radius 10 — extreme corner outside
+    expect(roundedRectAlpha(100, 100, 100, 100, mixed)).toBe(0);
+    // Bottom-left has radius 0 — corner pixel inside
+    expect(roundedRectAlpha(0, 99, 100, 100, mixed)).toBe(1);
+  });
+});
+
+// ── blitRgb48leRegion with borderRadius ─────────────────────────────────────
+
+describe("blitRgb48leRegion with borderRadius", () => {
+  it("clips corner pixels when borderRadius is set", () => {
+    // 10x10 source placed at origin on a 10x10 canvas, radius 5
+    const canvas = Buffer.alloc(10 * 10 * 6);
+    const source = makeHdrFrame(10, 10, 40000, 30000, 20000);
+    const br: [number, number, number, number] = [5, 5, 5, 5];
+    blitRgb48leRegion(canvas, source, 0, 0, 10, 10, 10, undefined, br);
+
+    // Center pixel should be written
+    const centerOff = (5 * 10 + 5) * 6;
+    expect(canvas.readUInt16LE(centerOff)).toBe(40000);
+
+    // Corner pixel (0,0) should be clipped (remain 0)
+    expect(canvas.readUInt16LE(0)).toBe(0);
+  });
+
+  it("no effect when borderRadius is all zeros", () => {
+    const canvas1 = Buffer.alloc(4 * 4 * 6);
+    const canvas2 = Buffer.alloc(4 * 4 * 6);
+    const source = makeHdrFrame(4, 4, 40000, 30000, 20000);
+
+    blitRgb48leRegion(canvas1, source, 0, 0, 4, 4, 4);
+    blitRgb48leRegion(canvas2, source, 0, 0, 4, 4, 4, undefined, [0, 0, 0, 0]);
+
+    expect(Buffer.compare(canvas1, canvas2)).toBe(0);
+  });
+
+  it("combines opacity and borderRadius", () => {
+    // Canvas with known background, source with known values
+    const canvas = makeHdrFrame(10, 10, 20000, 20000, 20000);
+    const source = makeHdrFrame(10, 10, 60000, 60000, 60000);
+    const br: [number, number, number, number] = [3, 3, 3, 3];
+
+    blitRgb48leRegion(canvas, source, 0, 0, 10, 10, 10, 0.5, br);
+
+    // Center pixel: opacity 0.5, mask 1.0 → effective 0.5
+    // Result: 60000 * 0.5 + 20000 * 0.5 = 40000
+    const centerOff = (5 * 10 + 5) * 6;
+    expect(canvas.readUInt16LE(centerOff)).toBe(40000);
+
+    // Corner pixel (0,0): mask 0.0 → skipped, canvas unchanged
+    expect(canvas.readUInt16LE(0)).toBe(20000);
+  });
+});
+
+// ── blitRgb48leAffine with borderRadius ─────────────────────────────────────
+
+describe("blitRgb48leAffine with borderRadius", () => {
+  it("clips corner pixels with identity transform", () => {
+    const canvas = Buffer.alloc(10 * 10 * 6);
+    const source = makeHdrFrame(10, 10, 40000, 30000, 20000);
+    const identity = [1, 0, 0, 1, 0, 0];
+    const br: [number, number, number, number] = [5, 5, 5, 5];
+
+    blitRgb48leAffine(canvas, source, identity, 10, 10, 10, 10, undefined, br);
+
+    // Center pixel should be written
+    const centerOff = (5 * 10 + 5) * 6;
+    expect(canvas.readUInt16LE(centerOff)).toBe(40000);
+
+    // Corner pixel (0,0) should be clipped
+    expect(canvas.readUInt16LE(0)).toBe(0);
+  });
+
+  it("mask follows transform (scaled output has rounded corners)", () => {
+    // 4x4 source scaled up 2× on an 8×8 canvas, radius 2 in source space
+    const canvas = Buffer.alloc(8 * 8 * 6);
+    const source = makeHdrFrame(4, 4, 50000, 40000, 30000);
+    const scale2x = [2, 0, 0, 2, 0, 0];
+    const br: [number, number, number, number] = [2, 2, 2, 2];
+
+    blitRgb48leAffine(canvas, source, scale2x, 4, 4, 8, 8, undefined, br);
+
+    // Canvas center (4,4) maps to source (2,2) — inside, should be written
+    const centerOff = (4 * 8 + 4) * 6;
+    expect(canvas.readUInt16LE(centerOff)).toBeGreaterThan(0);
+
+    // Canvas corner (0,0) maps to source (0,0) — outside radius, should be clipped
+    expect(canvas.readUInt16LE(0)).toBe(0);
+  });
+
+  it("no effect when borderRadius is undefined", () => {
+    const canvas1 = Buffer.alloc(4 * 4 * 6);
+    const canvas2 = Buffer.alloc(4 * 4 * 6);
+    const source = makeHdrFrame(4, 4, 40000, 30000, 20000);
+    const identity = [1, 0, 0, 1, 0, 0];
+
+    blitRgb48leAffine(canvas1, source, identity, 4, 4, 4, 4);
+    blitRgb48leAffine(canvas2, source, identity, 4, 4, 4, 4, undefined, undefined);
+
+    expect(Buffer.compare(canvas1, canvas2)).toBe(0);
   });
 });

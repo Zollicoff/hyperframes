@@ -267,6 +267,11 @@ export async function extractAllVideoFrames(
   signal?: AbortSignal,
   config?: Partial<Pick<EngineConfig, "ffmpegProcessTimeout">>,
   compiledDir?: string,
+  /** Skip SDR→HDR conversion. Set true when the HDR compositing path handles
+   *  color conversion in the blit step (sRGB→HLG/PQ LUT). Without this, the
+   *  colorspace filter produces bt2020 pixels that Chrome misinterprets as sRGB,
+   *  making SDR content invisible in HDR renders. */
+  skipSdrConversion?: boolean,
 ): Promise<ExtractionResult> {
   const startTime = Date.now();
   const extracted: ExtractedFrames[] = [];
@@ -310,7 +315,7 @@ export async function extractAllVideoFrames(
   );
 
   const hasAnyHdr = videoColorSpaces.some(isHdrColorSpace);
-  if (hasAnyHdr) {
+  if (hasAnyHdr && !skipSdrConversion) {
     const convertDir = join(options.outputDir, "_hdr_normalized");
     mkdirSync(convertDir, { recursive: true });
 

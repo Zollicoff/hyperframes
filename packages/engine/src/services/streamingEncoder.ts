@@ -354,7 +354,13 @@ export async function spawnStreamingEncoder(
       if (exitStatus !== "running" || !ffmpeg.stdin || ffmpeg.stdin.destroyed) {
         return false;
       }
-      return ffmpeg.stdin.write(buffer);
+      // Copy the buffer before writing — Node streams hold a reference to the
+      // provided buffer and drain it asynchronously. If the caller reuses the
+      // buffer (e.g. zero-filling transOutput for the next transition frame),
+      // the pipe would read partially-overwritten data, causing horizontal
+      // banding artifacts that flicker frame-to-frame.
+      const copy = Buffer.from(buffer);
+      return ffmpeg.stdin.write(copy);
     },
 
     close: async (): Promise<StreamingEncoderResult> => {
@@ -362,9 +368,10 @@ export async function spawnStreamingEncoder(
       if (signal) signal.removeEventListener("abort", onAbort);
 
       // Close stdin to signal end of input
-      if (ffmpeg.stdin && !ffmpeg.stdin.destroyed) {
+      const stdin = ffmpeg.stdin;
+      if (stdin && !stdin.destroyed) {
         await new Promise<void>((resolve) => {
-          ffmpeg.stdin!.end(() => resolve());
+          stdin.end(() => resolve());
         });
       }
 
