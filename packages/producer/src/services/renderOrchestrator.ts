@@ -68,6 +68,7 @@ import {
   type CompiledComposition,
 } from "./htmlCompiler.js";
 import { defaultLogger, type ProducerLogger } from "../logger.js";
+import { isPathInside } from "../utils/paths.js";
 
 /**
  * Wrap a cleanup operation so it never throws, but logs any failure.
@@ -246,7 +247,9 @@ function installDebugLogger(logPath: string, log: ProducerLogger = defaultLogger
 /**
  * Write compiled HTML and sub-compositions to the work directory.
  */
-function writeCompiledArtifacts(
+// Exported for integration tests. Not part of the stable public API —
+// callers outside this package should use `executeRenderJob` instead.
+export function writeCompiledArtifacts(
   compiled: CompiledComposition,
   workDir: string,
   includeSummary: boolean,
@@ -263,10 +266,13 @@ function writeCompiledArtifacts(
   }
 
   // Copy external assets (files outside projectDir) into the compiled directory
-  // so the file server can serve them.
+  // so the file server can serve them. The safe-path check uses
+  // `isPathInside()` rather than a hardcoded separator — on Windows,
+  // `compileDir + "/"` never matches because paths use `\\`, which caused
+  // every external asset to be wrongly rejected as "unsafe" (see GH #321).
   for (const [relativePath, absolutePath] of compiled.externalAssets) {
     const outPath = resolve(join(compileDir, relativePath));
-    if (!outPath.startsWith(compileDir + "/")) {
+    if (!isPathInside(outPath, compileDir)) {
       console.warn(`[Render] Skipping external asset with unsafe path: ${relativePath}`);
       continue;
     }
