@@ -60,6 +60,7 @@ export async function generateProjectScaffold(
   catalogedAssets: CatalogedAsset[],
   progress: (stage: string, detail?: string) => void,
   warnings: string[],
+  detectedLibraries?: string[],
 ): Promise<void> {
   // Capture output is a DATA folder, not a video project.
   // The agent builds index.html + compositions/ during step 6.
@@ -89,6 +90,7 @@ export async function generateProjectScaffold(
       hasLotties,
       hasShaders,
       catalogedAssets,
+      detectedLibraries,
     );
     progress("agent", "CLAUDE.md generated");
   } catch (err) {

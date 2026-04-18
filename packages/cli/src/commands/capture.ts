@@ -131,7 +131,20 @@ export default defineCommand({
         console.log(`  ${c.dim("Screenshots:")} ${result.screenshots.length}`);
         console.log(`  ${c.dim("Assets:")} ${result.assets.length}`);
         console.log(`  ${c.dim("Sections:")} ${result.tokens.sections.length}`);
-        console.log(`  ${c.dim("Fonts:")} ${result.tokens.fonts.join(", ")}`);
+        console.log(
+          `  ${c.dim("Fonts:")} ${result.tokens.fonts
+            .map(function (f) {
+              return (
+                f.family +
+                " (" +
+                (f.variable && f.weightRange
+                  ? f.weightRange[0] + "-" + f.weightRange[1] + " variable"
+                  : f.weights.join(",")) +
+                ")"
+              );
+            })
+            .join(", ")}`,
+        );
         if (result.warnings.length > 0) {
           console.log();
           for (const w of result.warnings) {

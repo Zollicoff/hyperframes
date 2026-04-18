@@ -403,6 +403,12 @@ export async function captureWebsite(
     // Extract all visible text in DOM order
     const visibleTextContent = await extractVisibleText(page1);
 
+    // Extract favicon links before closing page (removed from tokens to reduce noise)
+    const faviconLinks = (await page1.evaluate(`(() => {
+      var iconEls = Array.from(document.querySelectorAll('link[rel*="icon"], link[rel="apple-touch-icon"]'));
+      return iconEls.map(function(l) { return { rel: l.rel, href: l.href }; });
+    })()`)) as Array<{ rel: string; href: string }>;
+
     await page1.close();
 
     // Download fonts and rewrite URLs to local paths
@@ -439,7 +445,7 @@ export async function captureWebsite(
     let assets: CaptureResult["assets"] = [];
     if (!skipAssets) {
       progress("assets", "Downloading assets...");
-      assets = await downloadAssets(tokens, outputDir, catalogedAssets);
+      assets = await downloadAssets(tokens, outputDir, catalogedAssets, faviconLinks);
     }
 
     // Save visible text content for AI agent to use
@@ -501,6 +507,7 @@ export async function captureWebsite(
       catalogedAssets,
       progress,
       warnings,
+      detectedLibraries,
     );
 
     progress("done", "Capture complete");

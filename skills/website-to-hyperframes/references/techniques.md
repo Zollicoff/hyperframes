@@ -251,7 +251,15 @@ Animate font-variation-settings to reshape glyphs in real-time. Works with varia
 
 ```html
 <style>
-  @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,100..900&display=block");
+  /* Load the captured local variable font — do NOT use Google Fonts @import.
+     Replace this placeholder with an @font-face pointing to assets/fonts/. */
+  @font-face {
+    font-family: "Fraunces";
+    src: url("../assets/fonts/Fraunces-Variable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: block;
+  }
   .wordmark {
     --opsz: 144;
     --wght: 440;

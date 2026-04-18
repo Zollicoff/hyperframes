@@ -24,9 +24,9 @@ Read each file below. After reading each one, **write a 1-2 sentence summary** o
 
    After viewing them, write 3-4 sentences describing the site's visual mood, layout patterns, color strategy, and overall feel.
 
-2. **`extracted/tokens.json`** — Note the top 5-7 colors (HEX), all font families, number of sections, and number of headings/CTAs.
+2. **`extracted/tokens.json`** — Note the top 5-7 colors (HEX), all font families with their weights (e.g. `Inter (400,700)` or `Sohne (100-900 variable)`), number of sections, and number of headings/CTAs.
 
-3. **`extracted/visible-text.txt`** — Note the site's headline, tagline, key selling points, and any notable statistics or social proof.
+3. **`extracted/visible-text.txt`** — Each line is prefixed with the HTML tag: `[h1] Heading`, `[p] Body text`, `[a] Link text`. Use these tags to understand hierarchy — headings are key messages, paragraphs are supporting copy. Strip the `[tag]` prefix when quoting text in the script.
 
 4. **`extracted/asset-descriptions.md`** — One-line-per-file summary of all downloaded assets. Note which assets are most visually striking or useful for video (hero images, logos, product screenshots).
 
