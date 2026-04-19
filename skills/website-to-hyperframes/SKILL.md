@@ -83,7 +83,7 @@ Build each composition following the storyboard. After each one: self-review for
 
 **Read:** [references/step-7-validate.md](references/step-7-validate.md)
 
-Lint, validate, preview. Deliver the final render.
+Lint, validate, snapshot, preview. Deliver the preview to the user first — only render to MP4 on explicit request.
 
 **Gate:** `npx hyperframes lint` and `npx hyperframes validate` pass with zero errors.
 

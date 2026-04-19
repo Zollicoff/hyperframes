@@ -71,9 +71,13 @@ npx hyperframes preview
 
 Open the studio in a browser. Scrub through every beat.
 
-## Render
+## Render (on-demand only)
 
-Once preview looks correct, render to MP4. **Always pass `--output renders/<project-name>.mp4`** so the final file has a predictable name — do not rely on the timestamped default (`<project>_YYYY-MM-DD_HH-MM-SS.mp4`), which makes files hard to reference from docs/handoffs/CI.
+**Do NOT render automatically as part of the pipeline.** Preview is the delivery — the user scrubs, spots anything they want tweaked, and you iterate. Rendering to MP4 takes minutes of wall-clock time per pass and is wasted work if the user wants changes.
+
+Only run `hyperframes render` when the user **explicitly asks** — e.g. "render it", "make the final", "export the MP4", "I'm happy, produce the file". Until then, stop at preview + snapshots.
+
+When the user does ask to render, always pass `--output renders/<project-name>.mp4` so the final file has a predictable, human-readable name. The CLI default is timestamped (`<project>_YYYY-MM-DD_HH-MM-SS.mp4`) which is hard to reference from docs or later iterations.
 
 ```bash
 npx hyperframes render --output renders/<project-name>.mp4
@@ -81,6 +85,4 @@ npx hyperframes render --output renders/<project-name>.mp4
 
 Example: `npx hyperframes render --output renders/stripe-launch.mp4`
 
-For social-media vertical output, add `--format` or `--viewport 1080x1920` (depending on CLI flag support); check `npx hyperframes render --help`.
-
-If the final MP4 exceeds ~15 MB for a 30-second video, consider `--quality medium` or `--crf 23` to compress — but verify the quality trade-off on a snapshot pass before accepting.
+For social-media vertical output, check `npx hyperframes render --help` for viewport/format flags.
