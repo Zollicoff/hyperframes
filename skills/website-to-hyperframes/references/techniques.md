@@ -367,7 +367,7 @@ for (var f = 0; f < AUDIO_DATA.totalFrames; f++) {
 Per-frame sampling is required — a single tween will not react. Use the extract script:
 
 ```bash
-python3 skills/hyperframes/scripts/extract-audio-data.py narration.wav --fps 30 --bands 16 -o audio-data.json
+python3 skills/gsap/scripts/extract-audio-data.py narration.wav --fps 30 --bands 16 -o audio-data.json
 ```
 
 Keep text/logo intensity subtle (≤5% scale, ≤30% glow) — audio-reactive motion on tiny elements reads as jitter. Bigger backgrounds can push to 10–30%.

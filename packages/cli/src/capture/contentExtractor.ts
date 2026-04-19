@@ -134,9 +134,10 @@ export async function extractVisibleText(page: Page): Promise<string> {
         if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
         var tag = el.tagName.toLowerCase();
         if (tag === 'script' || tag === 'style' || tag === 'noscript') continue;
-        // Skip short text inside nav/footer (catches nav links, cookie consent)
+        // Skip very short text inside nav/footer (catches single-word nav links)
+        // Threshold is 8 chars to preserve footer copy like "© 2026 Stripe" (16 chars)
         var inNavOrFooter = el.closest('nav, footer, [role="navigation"]');
-        if (inNavOrFooter && text.length < 20) continue;
+        if (inNavOrFooter && text.length < 8) continue;
         // Skip common cookie/consent patterns
         if (cookieRe.test(text)) continue;
         texts.push('[' + tag + '] ' + text);

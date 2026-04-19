@@ -57,6 +57,8 @@ export async function downloadAssets(
   }
 
   // 3. Images — use the catalog as the single source of truth (highest resolution, deduplicated)
+  // If the catalog is empty, asset download produces zero images — this is surfaced as a warning
+  // so the capture doesn't silently produce a half-empty dataset.
   const imageUrls: { url: string; isPoster: boolean }[] = [];
 
   if (catalogedAssets && catalogedAssets.length > 0) {

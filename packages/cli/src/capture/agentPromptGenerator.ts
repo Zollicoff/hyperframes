@@ -20,30 +20,22 @@ export function generateAgentPrompt(
   outputDir: string,
   url: string,
   tokens: DesignTokens,
-  animations: AnimationCatalog | undefined,
+  _animations: AnimationCatalog | undefined, // reserved for future animation summary
   hasScreenshot: boolean,
   hasLottie?: boolean,
   hasShaders?: boolean,
-  _catalogedAssets?: CatalogedAsset[],
+  _catalogedAssets?: CatalogedAsset[], // reserved for future asset inventory
   detectedLibraries?: string[],
 ): void {
-  const prompt = buildPrompt(
-    url,
-    tokens,
-    animations,
-    hasScreenshot,
-    hasLottie,
-    hasShaders,
-    detectedLibraries,
-  );
+  const prompt = buildPrompt(url, tokens, hasScreenshot, hasLottie, hasShaders, detectedLibraries);
   writeFileSync(join(outputDir, "AGENTS.md"), prompt, "utf-8");
   writeFileSync(join(outputDir, "CLAUDE.md"), prompt, "utf-8");
+  writeFileSync(join(outputDir, ".cursorrules"), prompt, "utf-8");
 }
 
 function buildPrompt(
   url: string,
   tokens: DesignTokens,
-  _animations: AnimationCatalog | undefined,
   hasScreenshot: boolean,
   hasLottie?: boolean,
   hasShaders?: boolean,

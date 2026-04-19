@@ -339,8 +339,13 @@ export async function captureWebsite(
       const { catalogAssets } = await import("./assetCataloger.js");
       catalogedAssets = await catalogAssets(page1);
       progress("design", `${catalogedAssets.length} assets cataloged`);
+      if (catalogedAssets.length === 0) {
+        warnings.push(
+          "Asset catalog is empty — no images will be downloaded. The page may use non-standard image loading.",
+        );
+      }
     } catch (err) {
-      warnings.push(`Asset cataloging failed: ${err}`);
+      warnings.push(`Asset cataloging failed (no images will be downloaded): ${err}`);
     }
 
     // ── MUTATION phase: extractHtml modifies the live DOM (converts images to data URLs) ──

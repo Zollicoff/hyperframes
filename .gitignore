@@ -79,10 +79,8 @@ captures/
 *-tour/
 *-brand/
 
-# Local regression-test scratch directories (website-to-hyperframes runs).
-# These hold per-site captures, SCRIPT/STORYBOARD/DESIGN.md, compositions,
-# narration audio, rendered MP4s — all reproducible, never commit.
+# Local regression-test and video project scratch directories.
+# These hold per-site captures, compositions, narration audio, rendered MP4s.
 cursor-tests/
 basecamp-video/
-projects/
-videos/
+launch-video*/
