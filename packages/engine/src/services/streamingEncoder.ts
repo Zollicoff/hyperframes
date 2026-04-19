@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, statSync } from "fs";
 import { dirname } from "path";
 
 import { type GpuEncoder, getCachedGpuEncoder, getGpuEncoderName } from "../utils/gpuEncoder.js";
+import { getHdrEncoderColorParams } from "../utils/hdr.js";
 import { type EncoderOptions } from "./chunkEncoder.types.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 
@@ -79,6 +80,9 @@ export interface StreamingEncoderOptions {
   pixelFormat?: string;
   useGpu?: boolean;
   imageFormat?: "jpeg" | "png";
+  hdr?: { transfer: import("../utils/hdr.js").HdrTransfer };
+  /** When set, use rawvideo input instead of image2pipe. For HDR PQ-encoded frames. */
+  rawInputFormat?: "rgb48le";
 }
 
 export interface StreamingEncoderResult {
@@ -98,8 +102,11 @@ export interface StreamingEncoder {
  * Build FFmpeg args for streaming (image2pipe) input.
  * Reuses the same codec/quality/GPU logic as chunkEncoder's buildEncoderArgs
  * but with `-f image2pipe` instead of `-i <pattern>`.
+ *
+ * Exported so unit tests can assert on the constructed CLI without spawning
+ * FFmpeg — see streamingEncoder.test.ts.
  */
-function buildStreamingArgs(
+export function buildStreamingArgs(
   options: StreamingEncoderOptions,
   outputPath: string,
   gpuEncoder: GpuEncoder = null,
@@ -116,19 +123,41 @@ function buildStreamingArgs(
   } = options;
 
   // Input args: pipe from stdin
-  const inputCodec = imageFormat === "png" ? "png" : "mjpeg";
-  const args: string[] = [
-    "-f",
-    "image2pipe",
-    "-vcodec",
-    inputCodec,
-    "-framerate",
-    String(fps),
-    "-i",
-    "-",
-    "-r",
-    String(fps),
-  ];
+  const args: string[] = [];
+  if (options.rawInputFormat) {
+    // Raw pixel input (HLG/PQ-encoded rgb48le from FFmpeg extraction).
+    // Tag the input with the correct color space so FFmpeg uses the right
+    // YUV matrix when converting rgb48le → yuv420p10le for encoding.
+    // Without these tags FFmpeg assumes bt709 and applies the wrong matrix.
+    const hdrTransfer = options.hdr?.transfer;
+    const inputColorTrc =
+      hdrTransfer === "pq" ? "smpte2084" : hdrTransfer === "hlg" ? "arib-std-b67" : undefined;
+    args.push(
+      "-f",
+      "rawvideo",
+      "-pix_fmt",
+      options.rawInputFormat,
+      "-s",
+      `${options.width}x${options.height}`,
+      "-framerate",
+      String(fps),
+    );
+    if (inputColorTrc) {
+      args.push(
+        "-color_primaries",
+        "bt2020",
+        "-color_trc",
+        inputColorTrc,
+        "-colorspace",
+        "bt2020nc",
+      );
+    }
+    args.push("-i", "-");
+  } else {
+    const inputCodec = imageFormat === "png" ? "png" : "mjpeg";
+    args.push("-f", "image2pipe", "-vcodec", inputCodec, "-framerate", String(fps), "-i", "-");
+  }
+  args.push("-r", String(fps));
 
   const shouldUseGpu = useGpu && gpuEncoder !== null;
 
@@ -169,15 +198,24 @@ function buildStreamingArgs(
       if (bitrate) args.push("-b:v", bitrate);
       else args.push("-crf", String(quality));
 
-      // Encoder-specific params: anti-banding + bt709 color space.
-      // aq-mode=3 redistributes bits to dark flat areas (gradients).
-      // colorprim/transfer/colormatrix embed bt709 in the H.264/H.265 VUI.
+      // Encoder-specific params: anti-banding + color space tagging.
+      // For HDR, getHdrEncoderColorParams also emits the SMPTE ST 2086
+      // mastering-display and CTA-861.3 MaxCLL/MaxFALL SEI messages —
+      // without them, players (Apple, YouTube, HDR TVs) treat the file
+      // as SDR BT.2020 and tone-map incorrectly.
       const xParamsFlag = codec === "h264" ? "-x264-params" : "-x265-params";
-      const colorParams = "colorprim=bt709:transfer=bt709:colormatrix=bt709";
+      const colorParams =
+        options.rawInputFormat && options.hdr
+          ? getHdrEncoderColorParams(options.hdr.transfer).x265ColorParams
+          : "colorprim=bt709:transfer=bt709:colormatrix=bt709";
       if (preset === "ultrafast") {
         args.push(xParamsFlag, `aq-mode=3:${colorParams}`);
       } else {
         args.push(xParamsFlag, `aq-mode=3:aq-strength=0.8:deblock=1,1:${colorParams}`);
+      }
+      // Apple devices require hvc1 tag for HEVC playback (default hev1 won't open in QuickTime)
+      if (codec === "h265") {
+        args.push("-tag:v", "hvc1");
       }
     }
   } else if (codec === "vp9") {
@@ -194,27 +232,47 @@ function buildStreamingArgs(
     return [...args, "-y", outputPath];
   }
 
-  // BT.709 color space metadata — Chrome screenshots are sRGB which maps to bt709.
-  // Tags the output so players interpret colors correctly across devices.
+  // Color space metadata.
+  // When rawInputFormat is set, data comes from the WebGPU HDR pipeline
+  // (PQ-encoded) — tag with bt2020/PQ truthfully.
+  // Otherwise, Chrome captures sRGB — tag as bt709.
   if (codec === "h264" || codec === "h265") {
-    args.push(
-      "-colorspace:v",
-      "bt709",
-      "-color_primaries:v",
-      "bt709",
-      "-color_trc:v",
-      "bt709",
-      "-color_range",
-      "tv",
-    );
+    if (options.rawInputFormat && options.hdr) {
+      args.push(
+        "-colorspace:v",
+        "bt2020nc",
+        "-color_primaries:v",
+        "bt2020",
+        "-color_trc:v",
+        options.hdr.transfer === "pq" ? "smpte2084" : "arib-std-b67",
+        "-color_range",
+        "tv",
+      );
+    } else {
+      args.push(
+        "-colorspace:v",
+        "bt709",
+        "-color_primaries:v",
+        "bt709",
+        "-color_trc:v",
+        "bt709",
+        "-color_range",
+        "tv",
+      );
+    }
 
-    // Convert full-range RGB input (Chrome screenshots) to limited/TV range for H.264.
-    if (gpuEncoder === "vaapi") {
+    // Video filter for range/color conversion.
+    // Raw HDR input (from WebGPU pipeline) is already PQ-encoded — no conversion needed.
+    // Chrome screenshots need full→TV range conversion.
+    if (options.rawInputFormat) {
+      // No filter needed — PQ data goes straight to encoder
+    } else if (gpuEncoder === "vaapi") {
       const vfIdx = args.indexOf("-vf");
       if (vfIdx !== -1) {
         args[vfIdx + 1] = `scale=in_range=pc:out_range=tv,${args[vfIdx + 1]}`;
       }
     } else if (!shouldUseGpu) {
+      // Range conversion: Chrome screenshots are full-range RGB.
       args.push("-vf", "scale=in_range=pc:out_range=tv");
     }
 
@@ -304,7 +362,15 @@ export async function spawnStreamingEncoder(
       if (exitStatus !== "running" || !ffmpeg.stdin || ffmpeg.stdin.destroyed) {
         return false;
       }
-      return ffmpeg.stdin.write(buffer);
+      // Copy the buffer before writing — Node streams hold a reference to the
+      // provided buffer and drain it asynchronously. The HDR path's compositor
+      // reuses pre-allocated transOutput/normalCanvas buffers across frames,
+      // so without this copy the pipe would read partially-overwritten data
+      // and flicker. The SDR path doesn't invoke writeFrame at all (it pipes
+      // PNG files via encodeFramesFromDir), so the memcpy here is HDR-only
+      // and justified by correctness.
+      const copy = Buffer.from(buffer);
+      return ffmpeg.stdin.write(copy);
     },
 
     close: async (): Promise<StreamingEncoderResult> => {
@@ -312,9 +378,10 @@ export async function spawnStreamingEncoder(
       if (signal) signal.removeEventListener("abort", onAbort);
 
       // Close stdin to signal end of input
-      if (ffmpeg.stdin && !ffmpeg.stdin.destroyed) {
+      const stdin = ffmpeg.stdin;
+      if (stdin && !stdin.destroyed) {
         await new Promise<void>((resolve) => {
-          ffmpeg.stdin!.end(() => resolve());
+          stdin.end(() => resolve());
         });
       }
 
