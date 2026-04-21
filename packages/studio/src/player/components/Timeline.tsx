@@ -1,5 +1,10 @@
-import { useRef, useMemo, useCallback, useState, memo, type ReactNode } from "react";
-import { usePlayerStore, liveTime, type TimelineElement } from "../store/playerStore";
+import { useRef, useMemo, useCallback, useState, useEffect, memo, type ReactNode } from "react";
+import {
+  usePlayerStore,
+  liveTime,
+  type TimelineElement,
+  type ZoomMode,
+} from "../store/playerStore";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { formatTime } from "../lib/time";
 import { TimelineClip } from "./TimelineClip";
@@ -16,6 +21,7 @@ import {
   type TimelineTrackStyle,
   type TimelineTheme,
 } from "./timelineTheme";
+import { getTimelinePixelsPerSecond } from "./timelineZoom";
 
 /* ── Layout ─────────────────────────────────────────────────────── */
 const GUTTER = 32;
@@ -99,6 +105,30 @@ export function generateTicks(duration: number): { major: number[]; minor: numbe
   return { major, minor };
 }
 
+export function shouldAutoScrollTimeline(
+  zoomMode: ZoomMode,
+  scrollWidth: number,
+  clientWidth: number,
+): boolean {
+  if (zoomMode === "fit") return false;
+  if (!Number.isFinite(scrollWidth) || !Number.isFinite(clientWidth)) return false;
+  return scrollWidth - clientWidth > 1;
+}
+
+export function getTimelineScrollLeftForZoomTransition(
+  previousZoomMode: ZoomMode | null,
+  nextZoomMode: ZoomMode,
+  currentScrollLeft: number,
+): number {
+  if (previousZoomMode === "manual" && nextZoomMode === "fit") return 0;
+  return currentScrollLeft;
+}
+
+export function getTimelinePlayheadLeft(time: number, pixelsPerSecond: number): number {
+  if (!Number.isFinite(time) || !Number.isFinite(pixelsPerSecond)) return GUTTER;
+  return GUTTER + Math.max(0, time) * Math.max(0, pixelsPerSecond);
+}
+
 /* ── Component ──────────────────────────────────────────────────── */
 interface TimelineProps {
   /** Called when user seeks via ruler/track click or playhead drag */
@@ -171,8 +201,9 @@ export const Timeline = memo(function Timeline({
   const selectedElementId = usePlayerStore((s) => s.selectedElementId);
   const setSelectedElementId = usePlayerStore((s) => s.setSelectedElementId);
   const updateElement = usePlayerStore((s) => s.updateElement);
+  const currentTime = usePlayerStore((s) => s.currentTime);
   const zoomMode = usePlayerStore((s) => s.zoomMode);
-  const manualPps = usePlayerStore((s) => s.pixelsPerSecond);
+  const manualZoomPercent = usePlayerStore((s) => s.manualZoomPercent);
   const playheadRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -288,24 +319,53 @@ export const Timeline = memo(function Timeline({
     viewportWidth > GUTTER && effectiveDuration > 0
       ? (viewportWidth - GUTTER - 2) / effectiveDuration
       : 100;
-  const pps = zoomMode === "fit" ? fitPps : manualPps;
+  const pps = getTimelinePixelsPerSecond(fitPps, zoomMode, manualZoomPercent);
   const trackContentWidth = Math.max(0, effectiveDuration * pps);
+  const zoomModeRef = useRef(zoomMode);
+  zoomModeRef.current = zoomMode;
+  const previousZoomModeRef = useRef<ZoomMode | null>(zoomMode);
 
   const durationRef = useRef(effectiveDuration);
   durationRef.current = effectiveDuration;
   const ppsRef = useRef(pps);
   ppsRef.current = pps;
+  const syncPlayheadPosition = useCallback((time: number) => {
+    if (!playheadRef.current || durationRef.current <= 0) return;
+    playheadRef.current.style.left = `${getTimelinePlayheadLeft(time, ppsRef.current)}px`;
+  }, []);
+
+  useEffect(() => {
+    syncPlayheadPosition(currentTime);
+  }, [currentTime, pps, syncPlayheadPosition]);
+
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) {
+      previousZoomModeRef.current = zoomMode;
+      return;
+    }
+    scroll.scrollLeft = getTimelineScrollLeftForZoomTransition(
+      previousZoomModeRef.current,
+      zoomMode,
+      scroll.scrollLeft,
+    );
+    previousZoomModeRef.current = zoomMode;
+  }, [zoomMode]);
+
   useMountEffect(() => {
     const unsub = liveTime.subscribe((t) => {
       const dur = durationRef.current;
       if (!playheadRef.current || dur <= 0) return;
-      const px = t * ppsRef.current;
-      playheadRef.current.style.left = `${GUTTER + px}px`;
+      const playheadX = getTimelinePlayheadLeft(t, ppsRef.current);
+      playheadRef.current.style.left = `${playheadX}px`;
 
       // Auto-scroll to follow playhead during playback or seeking
       const scroll = scrollRef.current;
-      if (scroll && !isDragging.current) {
-        const playheadX = GUTTER + px;
+      if (
+        scroll &&
+        !isDragging.current &&
+        shouldAutoScrollTimeline(zoomModeRef.current, scroll.scrollWidth, scroll.clientWidth)
+      ) {
         const visibleRight = scroll.scrollLeft + scroll.clientWidth;
         const visibleLeft = scroll.scrollLeft;
         const edgeMargin = scroll.clientWidth * 0.12;
@@ -444,7 +504,13 @@ export const Timeline = memo(function Timeline({
     (clientX: number) => {
       cancelAnimationFrame(dragScrollRaf.current);
       const el = scrollRef.current;
-      if (!el || !isDragging.current) return;
+      if (
+        !el ||
+        !isDragging.current ||
+        !shouldAutoScrollTimeline(zoomModeRef.current, el.scrollWidth, el.clientWidth)
+      ) {
+        return;
+      }
       const rect = el.getBoundingClientRect();
       const edgeZone = 40;
       const maxSpeed = 12;
