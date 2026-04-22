@@ -10,7 +10,8 @@ import { formatTime } from "../lib/time";
 import { TimelineClip } from "./TimelineClip";
 import { EditPopover } from "./EditModal";
 import {
-  canOffsetTrimClipStart,
+  buildTimelineElementAgentPrompt,
+  getTimelineEditCapabilities,
   resolveTimelineAutoScroll,
   resolveTimelineMove,
   resolveTimelineResize,
@@ -245,6 +246,7 @@ export const Timeline = memo(function Timeline({
   onResizeElementRef.current = onResizeElement;
   const suppressClickRef = useRef(false);
   const [showPopover, setShowPopover] = useState(false);
+  const [copiedAgentElementKey, setCopiedAgentElementKey] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
   const roRef = useRef<ResizeObserver | null>(null);
 
@@ -896,6 +898,46 @@ export const Timeline = memo(function Timeline({
         }
       : null;
   const renderClipChildren = (element: TimelineElement, clipStyle: TrackVisualStyle) => {
+    const capabilities = getTimelineEditCapabilities(element);
+    const elementKey = element.key ?? element.id;
+    const needsAgentFallback =
+      !capabilities.canMove && !capabilities.canTrimStart && !capabilities.canTrimEnd;
+    const agentButton = needsAgentFallback ? (
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={async (e) => {
+          e.stopPropagation();
+          const text = buildTimelineElementAgentPrompt(element);
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          }
+          setCopiedAgentElementKey(elementKey);
+          window.setTimeout(() => {
+            setCopiedAgentElementKey((current) => (current === elementKey ? null : current));
+          }, 900);
+        }}
+        className="absolute bottom-2 right-2 z-[5] rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none transition-colors"
+        style={{
+          color: copiedAgentElementKey === elementKey ? "#86efac" : clipStyle.label,
+          background:
+            copiedAgentElementKey === elementKey ? "rgba(34,197,94,0.16)" : `${clipStyle.accent}1e`,
+          boxShadow:
+            copiedAgentElementKey === elementKey
+              ? "inset 0 0 0 1px rgba(34,197,94,0.28)"
+              : `inset 0 0 0 1px ${clipStyle.accent}33`,
+        }}
+      >
+        {copiedAgentElementKey === elementKey ? "Copied!" : "Copy to Agent"}
+      </button>
+    ) : null;
     return (
       <>
         {renderClipOverlay?.(element)}
@@ -941,6 +983,7 @@ export const Timeline = memo(function Timeline({
             </div>
           )}
         </div>
+        {agentButton}
       </>
     );
   };
@@ -1082,6 +1125,7 @@ export const Timeline = memo(function Timeline({
                   {els.map((el, i) => {
                     const clipStyle = getStyle(el.tag);
                     const elementKey = el.key ?? el.id;
+                    const capabilities = getTimelineEditCapabilities(el);
                     const isSelected = selectedElementId === elementKey;
                     const isComposition = !!el.compositionSrc;
                     const clipKey = `${elementKey}-${i}`;
@@ -1110,7 +1154,8 @@ export const Timeline = memo(function Timeline({
                         onHoverEnd={() => setHoveredClip(null)}
                         onResizeStart={(edge, e) => {
                           if (e.button !== 0 || e.shiftKey || !onResizeElement) return;
-                          if (edge === "start" && !canOffsetTrimClipStart(el)) return;
+                          if (edge === "start" && !capabilities.canTrimStart) return;
+                          if (edge === "end" && !capabilities.canTrimEnd) return;
                           e.stopPropagation();
                           setShowPopover(false);
                           setRangeSelection(null);
@@ -1125,7 +1170,13 @@ export const Timeline = memo(function Timeline({
                           });
                         }}
                         onPointerDown={(e) => {
-                          if (e.button !== 0 || e.shiftKey || !onMoveElement) return;
+                          if (
+                            e.button !== 0 ||
+                            e.shiftKey ||
+                            !onMoveElement ||
+                            !capabilities.canMove
+                          )
+                            return;
                           setShowPopover(false);
                           setRangeSelection(null);
                           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
