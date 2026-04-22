@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildTrackZIndexMap,
   buildPromptCopyText,
   buildTimelineAgentPrompt,
+  buildTrackZIndexMap,
+  canOffsetTrimClipStart,
   resolveTimelineAutoScroll,
   resolveTimelineMove,
   resolveTimelineResize,
@@ -154,13 +155,13 @@ describe("resolveTimelineMove", () => {
 });
 
 describe("buildTrackZIndexMap", () => {
-  it("maps sorted tracks onto stable positive z-index values", () => {
+  it("maps visually higher tracks onto higher z-index values", () => {
     expect(buildTrackZIndexMap([-2, -1, 0, 3])).toEqual(
       new Map([
-        [-2, 1],
-        [-1, 2],
-        [0, 3],
-        [3, 4],
+        [-2, 4],
+        [-1, 3],
+        [0, 2],
+        [3, 1],
       ]),
     );
   });
@@ -168,11 +169,39 @@ describe("buildTrackZIndexMap", () => {
   it("deduplicates tracks before assigning z-index values", () => {
     expect(buildTrackZIndexMap([-1, 0, -1, 3, 3])).toEqual(
       new Map([
-        [-1, 1],
+        [-1, 3],
         [0, 2],
-        [3, 3],
+        [3, 1],
       ]),
     );
+  });
+});
+
+describe("canOffsetTrimClipStart", () => {
+  it("allows front trim for clips that carry playback offset metadata", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "div",
+        playbackStartAttr: "media-start",
+      }),
+    ).toBe(true);
+  });
+
+  it("allows front trim for media clips with source duration metadata", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "video",
+        sourceDuration: 12,
+      }),
+    ).toBe(true);
+  });
+
+  it("blocks front trim for generic motion clips", () => {
+    expect(
+      canOffsetTrimClipStart({
+        tag: "section",
+      }),
+    ).toBe(false);
   });
 });
 

@@ -116,7 +116,8 @@ export function resolveTimelineMove(
 
 export function buildTrackZIndexMap(tracks: number[]): Map<number, number> {
   const uniqueTracks = Array.from(new Set(tracks)).sort((a, b) => a - b);
-  return new Map(uniqueTracks.map((track, index) => [track, index + 1]));
+  const maxZIndex = uniqueTracks.length;
+  return new Map(uniqueTracks.map((track, index) => [track, maxZIndex - index]));
 }
 
 export function resolveTimelineResize(
@@ -166,6 +167,23 @@ export interface TimelinePromptElement {
   start: number;
   duration: number;
   track: number;
+}
+
+export function canOffsetTrimClipStart(input: {
+  tag: string;
+  playbackStart?: number;
+  playbackStartAttr?: "media-start" | "playback-start";
+  sourceDuration?: number;
+}): boolean {
+  if (input.playbackStartAttr != null) return true;
+  if (input.playbackStart != null) return true;
+  const normalizedTag = input.tag.toLowerCase();
+  if (!["video", "audio"].includes(normalizedTag)) return false;
+  return (
+    input.sourceDuration != null &&
+    Number.isFinite(input.sourceDuration) &&
+    input.sourceDuration > 0
+  );
 }
 
 export function buildTimelineAgentPrompt({
