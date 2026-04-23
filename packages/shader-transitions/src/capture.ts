@@ -37,14 +37,27 @@ export function captureScene(sceneEl: HTMLElement, bgColor: string): Promise<HTM
     // with <filter> elements (e.g. feTurbulence grain backgrounds), certain
     // cross-origin images, and mask/clip-path url() refs can taint the
     // output canvas on WebKit. Without these flags, html2canvas throws
-    // `SecurityError: The operation is insecure` on read-back and every
-    // shader transition falls through to the hard-cut catch handler —
-    // observed in Safari + Claude Design's cross-origin iframe sandbox.
+    // `SecurityError: The operation is insecure` during its own read-back
+    // path and every shader transition falls through to the catch handler
+    // — observed in Safari + Claude Design's cross-origin iframe sandbox.
     //
-    // useCORS:    send CORS headers on same-/cross-origin image fetches.
-    // allowTaint: proceed even when canvas becomes tainted; the resulting
-    //             canvas is still usable as a WebGL texture via
-    //             gl.texImage2D (no pixel read-back required).
+    // useCORS:    send CORS headers on image fetches so cross-origin images
+    //             with proper `Access-Control-Allow-Origin` don't taint the
+    //             canvas in the first place. Strict improvement.
+    // allowTaint: let html2canvas complete and return a canvas even when it
+    //             becomes tainted (instead of throwing). Important caveat:
+    //             a tainted canvas CANNOT be uploaded to WebGL via
+    //             `gl.texImage2D` — WebGL spec requires SecurityError on
+    //             non-origin-clean sources, with no opt-out. So this flag
+    //             only moves the failure point from html2canvas to the
+    //             texImage2D call in webgl.ts. In both cases `hyper-shader.ts`
+    //             catches the rejected promise and runs the CSS crossfade
+    //             fallback. Net effect: the end-user UX is the same (smooth
+    //             CSS fade in either case), but we get a cleaner, more
+    //             predictable error site and the flag is defensively
+    //             correct for the non-taint branches where it genuinely
+    //             helps (e.g., `crossOrigin="anonymous"` image fetches
+    //             that already had CORS headers).
     useCORS: true,
     allowTaint: true,
     ignoreElements: (el: Element) => el.tagName === "CANVAS" || el.hasAttribute("data-no-capture"),
