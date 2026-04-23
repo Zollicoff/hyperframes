@@ -60,6 +60,16 @@ class HyperframesPlayer extends HTMLElement {
     el: HTMLMediaElement;
     start: number;
     duration: number;
+    /**
+     * Count of consecutive steady-state samples in which the proxy's
+     * `currentTime` was found drifted beyond `MIRROR_DRIFT_THRESHOLD_SECONDS`.
+     * Reset on every in-threshold sample. `_mirrorParentMediaTime` only
+     * issues a write once this passes `MIRROR_REQUIRED_CONSECUTIVE_DRIFT_SAMPLES`,
+     * which absorbs single-sample jitter (e.g. one slow bridge tick) without
+     * thrashing the media element with seeks. Forced calls (promotion,
+     * media-added) bypass the gate and reset the counter.
+     */
+    driftSamples: number;
   }> = [];
 
   /**
@@ -631,12 +641,62 @@ class HyperframesPlayer extends HTMLElement {
    */
   private static readonly MIRROR_DRIFT_THRESHOLD_SECONDS = 0.05;
 
-  private _mirrorParentMediaTime(timelineSeconds: number) {
+  /**
+   * How many *consecutive* over-threshold steady-state samples we wait for
+   * before issuing a `currentTime` write. A value of 2 means a single
+   * spike (one slow bridge tick, one tab-throttled rAF batch, one GC pause)
+   * is absorbed without a seek; sustained drift still corrects on the very
+   * next tick after the threshold is crossed twice in a row.
+   *
+   * **Coupling with the timeline-control bridge** — read before changing:
+   *   worst_case_correction_latency_ms
+   *     ≈ MIRROR_REQUIRED_CONSECUTIVE_DRIFT_SAMPLES × bridgeMaxPostIntervalMs
+   *
+   * `bridgeMaxPostIntervalMs` (currently `80`) lives at
+   * `packages/core/src/runtime/state.ts` (field on `RuntimeState`). At
+   * today's values, worst-case is `2 × 80 ms = 160 ms` — still well under
+   * the human shot-change tolerance for A/V re-sync. If you bump bridge
+   * cadence (raising `bridgeMaxPostIntervalMs`) you may need to drop this
+   * constant to `1` to keep the product under ~150 ms; if you tighten
+   * cadence you can raise this to absorb more jitter without perceptual
+   * cost. There is a back-reference in `state.ts` next to
+   * `bridgeMaxPostIntervalMs` so a change to either side surfaces the
+   * coupling.
+   */
+  private static readonly MIRROR_REQUIRED_CONSECUTIVE_DRIFT_SAMPLES = 2;
+
+  /**
+   * Mirror parent-proxy `currentTime` to the iframe timeline. Defaults to
+   * the *coalesced* path: a single over-threshold sample is treated as
+   * jitter and merely increments a per-proxy counter; the actual seek only
+   * fires once `MIRROR_REQUIRED_CONSECUTIVE_DRIFT_SAMPLES` consecutive
+   * samples agree. Pass `{ force: true }` for one-shot alignment moments
+   * (audio-ownership promotion, brand-new proxy initialization) where we
+   * cannot tolerate even ~80 ms of misaligned audible playback.
+   *
+   * The counter is also reset on any in-threshold sample and on any
+   * out-of-range timeline position, so a proxy that drops back into a
+   * scene later starts fresh rather than carrying stale samples from the
+   * last time it was active.
+   */
+  private _mirrorParentMediaTime(timelineSeconds: number, options?: { force?: boolean }) {
+    const force = options?.force === true;
+    const requiredSamples = HyperframesPlayer.MIRROR_REQUIRED_CONSECUTIVE_DRIFT_SAMPLES;
+    const threshold = HyperframesPlayer.MIRROR_DRIFT_THRESHOLD_SECONDS;
     for (const m of this._parentMedia) {
       const relTime = timelineSeconds - m.start;
-      if (relTime < 0 || relTime >= m.duration) continue;
-      if (Math.abs(m.el.currentTime - relTime) > HyperframesPlayer.MIRROR_DRIFT_THRESHOLD_SECONDS) {
-        m.el.currentTime = relTime;
+      if (relTime < 0 || relTime >= m.duration) {
+        m.driftSamples = 0;
+        continue;
+      }
+      if (Math.abs(m.el.currentTime - relTime) > threshold) {
+        m.driftSamples += 1;
+        if (force || m.driftSamples >= requiredSamples) {
+          m.el.currentTime = relTime;
+          m.driftSamples = 0;
+        }
+      } else {
+        m.driftSamples = 0;
       }
     }
   }
@@ -668,7 +728,10 @@ class HyperframesPlayer extends HTMLElement {
     // precisely because the scenario that triggered promotion is
     // "autoplay blocked" — the iframe can't make noise on its own.
     this._sendControl("set-media-output-muted", { muted: true });
-    this._mirrorParentMediaTime(this._currentTime);
+    // One-shot alignment: a brand-new proxy must pick up the iframe's exact
+    // timeline position immediately to avoid an audible jump. Bypass the
+    // jitter-coalescing gate.
+    this._mirrorParentMediaTime(this._currentTime, { force: true });
     if (!this._paused) this._playParentMedia();
     this.dispatchEvent(
       new CustomEvent("audioownershipchange", {
@@ -688,7 +751,7 @@ class HyperframesPlayer extends HTMLElement {
     tag: "audio" | "video",
     start: number,
     duration: number,
-  ): { el: HTMLMediaElement; start: number; duration: number } | null {
+  ): { el: HTMLMediaElement; start: number; duration: number; driftSamples: number } | null {
     // Deduplicate — browsers normalize URLs so we compare on the element after assignment
     if (this._parentMedia.some((m) => m.el.src === src)) return null;
 
@@ -699,7 +762,7 @@ class HyperframesPlayer extends HTMLElement {
     el.muted = this.muted;
     if (this.playbackRate !== 1) el.playbackRate = this.playbackRate;
 
-    const entry = { el, start, duration };
+    const entry = { el, start, duration, driftSamples: 0 };
     this._parentMedia.push(entry);
     return entry;
   }
@@ -778,7 +841,10 @@ class HyperframesPlayer extends HTMLElement {
     // start producing audio right away — otherwise it sits silent through
     // the next several hundred ms until the next runtime state message.
     if (created && this._audioOwner === "parent") {
-      this._mirrorParentMediaTime(this._currentTime);
+      // One-shot alignment: a freshly-created proxy must catch up to the
+      // current timeline position on the very first sample, so bypass the
+      // jitter-coalescing gate.
+      this._mirrorParentMediaTime(this._currentTime, { force: true });
       if (!this._paused && created.el.src) {
         created.el.play().catch((err: unknown) => this._reportPlaybackError(err));
       }
