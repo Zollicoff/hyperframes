@@ -29,7 +29,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runFps } from "./scenarios/02-fps.ts";
 import { runLoad } from "./scenarios/03-load.ts";
+import { runScrub } from "./scenarios/04-scrub.ts";
+import { runDrift } from "./scenarios/05-drift.ts";
 import { reportAndGate, type GateMode, type GateResult, type Metric } from "./perf-gate.ts";
 import { launchBrowser } from "./runner.ts";
 import { startServer } from "./server.ts";
@@ -38,7 +41,42 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const RESULTS_DIR = resolve(HERE, "results");
 const RESULTS_FILE = resolve(RESULTS_DIR, "metrics.json");
 
-type ScenarioId = "load";
+type ScenarioId = "load" | "fps" | "scrub" | "drift";
+
+/**
+ * Per-scenario default `runs` value when the caller didn't pass `--runs`.
+ *
+ * Why `load` gets 5 runs and the others get 3:
+ *
+ *   - `load` reports a single p95 over `runs` measurements, so each `run` is
+ *     one sample. p95 over n=3 is mostly noise (the 95th percentile of three
+ *     numbers is just `max`), so we bump it to 5. We considered 10 — but cold
+ *     load is the slowest scenario in the shard (~2s × 5 runs × 2 fixtures =
+ *     ~20s with disk cache cleared), and going to 10 would push the load shard
+ *     past 30s of pure-measurement wall time per CI invocation.
+ *   - `fps` aggregates as `min(ratio)` over runs — 3 runs gives us a worst-
+ *     of-three signal, which is what we want for a floor metric. Adding more
+ *     runs would only make the ratio strictly smaller (more chances to catch
+ *     a stall) and shift the threshold toward false positives from runner
+ *     contention rather than real regressions.
+ *   - `scrub` and `drift` *pool* their per-run samples (10 seeks/run for
+ *     scrub, ~1500 RVFC frames/run for drift) and compute the percentile over
+ *     the pooled set. Their effective sample count for the percentile is
+ *     `runs × samples_per_run`, not `runs`, so 3 runs already gives 30+ scrub
+ *     samples and 4500+ drift samples per shard — well above the n≈30 rule of
+ *     thumb for a stable p95.
+ *
+ * TODO(player-perf): revisit `fps: 3` once we have ~2 weeks of CI baseline
+ * data — if `min(ratio)` shows >5% inter-run variance attributable to runner
+ * jitter (not real player regressions), bump to 5 and tighten the
+ * `compositionTimeAdvancementRatioMin` baseline accordingly.
+ */
+const DEFAULT_RUNS: Record<ScenarioId, number> = {
+  load: 5,
+  fps: 3,
+  scrub: 3,
+  drift: 3,
+};
 
 type ResultsFile = {
   schemaVersion: 1;
@@ -88,7 +126,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     // `mode` is consumed (measure logs regressions but never fails; enforce
     // exits non-zero on regression).
     mode: (process.env.PLAYER_PERF_MODE as GateMode) === "enforce" ? "enforce" : "measure",
-    scenarios: ["load"],
+    scenarios: ["load", "fps", "scrub", "drift"],
     runs: null,
     fixture: null,
     headful: false,
@@ -150,7 +188,31 @@ async function main(): Promise<void> {
         const m = await runLoad({
           browser,
           origin: server.origin,
-          runs: args.runs ?? 5,
+          runs: args.runs ?? DEFAULT_RUNS.load,
+          fixture: args.fixture,
+        });
+        metrics.push(...m);
+      } else if (scenario === "fps") {
+        const m = await runFps({
+          browser,
+          origin: server.origin,
+          runs: args.runs ?? DEFAULT_RUNS.fps,
+          fixture: args.fixture,
+        });
+        metrics.push(...m);
+      } else if (scenario === "scrub") {
+        const m = await runScrub({
+          browser,
+          origin: server.origin,
+          runs: args.runs ?? DEFAULT_RUNS.scrub,
+          fixture: args.fixture,
+        });
+        metrics.push(...m);
+      } else if (scenario === "drift") {
+        const m = await runDrift({
+          browser,
+          origin: server.origin,
+          runs: args.runs ?? DEFAULT_RUNS.drift,
           fixture: args.fixture,
         });
         metrics.push(...m);
