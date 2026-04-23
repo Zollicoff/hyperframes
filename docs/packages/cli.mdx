@@ -394,6 +394,25 @@ This is suppressed in CI environments, non-TTY shells, and when `HYPERFRAMES_NO_
     2. **Local studio mode** — if `@hyperframes/studio` is installed in your project's `node_modules`, spawns Vite with full HMR for faster iteration.
     3. **Monorepo mode** — if running from the Hyperframes source repo, spawns the studio dev server directly.
 
+    ### `publish`
+
+    Upload the project and get back a stable `hyperframes.dev` URL:
+
+    ```bash
+    npx hyperframes publish [dir]
+    npx hyperframes publish --yes
+    ```
+
+    | Flag | Description |
+    |------|-------------|
+    | `--yes` | Skip the confirmation prompt |
+
+    `publish` zips the current project, uploads it to the HyperFrames publish backend, and prints a stable `hyperframes.dev` URL for that stored project.
+
+    The printed URL already includes the claim token, so opening it on `hyperframes.dev` lets the intended user claim the uploaded project and continue editing in the web app.
+
+    This flow does not keep a local preview server alive and does not open a tunnel. The published URL resolves to the persisted project stored by HeyGen, so it keeps working after the CLI process exits.
+
     ### `lint`
 
     Check a composition for common issues:
