@@ -293,22 +293,38 @@ export async function extractVideoFramesRange(
  * function (PQ for HDR10, HLG for broadcast HDR). The output transfer must
  * match the dominant transfer of the surrounding HDR content; otherwise the
  * downstream encoder will tag the final video with the wrong curve.
+ *
+ * `startTime` and `duration` bound the re-encode to the segment the composition
+ * actually uses. Without them a 30-minute screen recording that contributes a
+ * 2-second clip was transcoded in full — a >100× waste for long sources.
+ * Mirrors the segment-scope fix already applied to the VFR→CFR preflight.
  */
 async function convertSdrToHdr(
   inputPath: string,
   outputPath: string,
+  startTime: number,
+  duration: number,
   targetTransfer: HdrTransfer,
   signal?: AbortSignal,
   config?: Partial<Pick<EngineConfig, "ffmpegProcessTimeout">>,
 ): Promise<void> {
+  // Positive duration is required — FFmpeg's `-t 0` silently produces a 0-byte
+  // output that the downstream extractor then treats as a valid (empty) file.
+  if (duration <= 0) {
+    throw new Error(`convertSdrToHdr: duration must be positive (got ${duration})`);
+  }
   const timeout = config?.ffmpegProcessTimeout ?? DEFAULT_CONFIG.ffmpegProcessTimeout;
 
   // smpte2084 = PQ (HDR10), arib-std-b67 = HLG.
   const colorTrc = targetTransfer === "pq" ? "smpte2084" : "arib-std-b67";
 
   const args = [
+    "-ss",
+    String(startTime),
     "-i",
     inputPath,
+    "-t",
+    String(duration),
     "-vf",
     "colorspace=all=bt2020:iall=bt709:range=tv",
     "-color_primaries",
@@ -455,16 +471,21 @@ export async function extractAllVideoFrames(
 
   // Phase 2: Probe color spaces and normalize if mixed HDR/SDR
   const phase2ProbeStart = Date.now();
-  const videoColorSpaces = await Promise.all(
-    resolvedVideos.map(async ({ videoPath }) => {
-      const metadata = await extractMediaMetadata(videoPath);
-      return metadata.colorSpace;
-    }),
+  const videoMetadata = await Promise.all(
+    resolvedVideos.map(({ videoPath }) => extractMediaMetadata(videoPath)),
   );
+  const videoColorSpaces = videoMetadata.map((m) => m.colorSpace);
   breakdown.hdrProbeMs = Date.now() - phase2ProbeStart;
 
   const hdrPreflightStart = Date.now();
   const hdrInfo = analyzeCompositionHdr(videoColorSpaces);
+  // Track entries the HDR preflight validated as non-extractable so they can
+  // be removed from every parallel array before Phase 2b and Phase 3 see them.
+  // Without this, `errors.push({...}); continue;` only short-circuits the
+  // normalization step — the invalid entry stays in `resolvedVideos` and
+  // Phase 3 still calls `extractVideoFramesRange` on the same past-EOF
+  // mediaStart, surfacing a second raw FFmpeg error for the same clip.
+  const hdrSkippedIndices = new Set<number>();
   if (hdrInfo.hasHdr && hdrInfo.dominantTransfer) {
     // dominantTransfer is "majority wins" — if a composition mixes PQ and HLG
     // sources (rare but legal), the minority transfer's videos get converted
@@ -483,11 +504,46 @@ export async function extractAllVideoFrames(
         // SDR video in a mixed timeline — convert to the dominant HDR transfer
         // so the encoder tags the final video correctly (PQ vs HLG).
         const entry = resolvedVideos[i];
-        if (!entry) continue;
+        const metadata = videoMetadata[i];
+        if (!entry || !metadata) continue;
+
+        // Guard against mediaStart past EOF — FFmpeg's `-ss` silently produces
+        // a 0-byte file when seeking beyond the source duration, and the
+        // downstream extractor then points at a broken input.
+        if (entry.video.mediaStart >= metadata.durationSeconds) {
+          errors.push({
+            videoId: entry.video.id,
+            error: `SDR→HDR conversion skipped: mediaStart (${entry.video.mediaStart}s) ≥ source duration (${metadata.durationSeconds}s)`,
+          });
+          hdrSkippedIndices.add(i);
+          continue;
+        }
+
+        // Scope the re-encode to the segment the composition actually uses.
+        // Long sources (e.g. 30-minute screen recordings) contributing short
+        // clips were transcoded in full pre-fix — a >100× waste.
+        let segDuration = entry.video.end - entry.video.start;
+        if (!Number.isFinite(segDuration) || segDuration <= 0) {
+          const sourceRemaining = metadata.durationSeconds - entry.video.mediaStart;
+          segDuration = sourceRemaining > 0 ? sourceRemaining : metadata.durationSeconds;
+        }
+
         const convertedPath = join(convertDir, `${entry.video.id}_hdr.mp4`);
         try {
-          await convertSdrToHdr(entry.videoPath, convertedPath, targetTransfer, signal, config);
+          await convertSdrToHdr(
+            entry.videoPath,
+            convertedPath,
+            entry.video.mediaStart,
+            segDuration,
+            targetTransfer,
+            signal,
+            config,
+          );
           entry.videoPath = convertedPath;
+          // Segment-scoped re-encode starts the new file at t=0, so downstream
+          // extraction must seek from 0, not the original mediaStart. Shallow-copy
+          // to avoid mutating the caller's VideoElement (mirrors the VFR fix).
+          entry.video = { ...entry.video, mediaStart: 0 };
           breakdown.hdrPreflightCount += 1;
         } catch (err) {
           errors.push({
@@ -499,6 +555,19 @@ export async function extractAllVideoFrames(
     }
   }
   breakdown.hdrPreflightMs = Date.now() - hdrPreflightStart;
+
+  // Remove HDR-preflight-skipped entries from every parallel array so Phase 2b
+  // (VFR) and Phase 3 (extract) don't re-process them. Iterate backwards to
+  // keep indices stable while splicing.
+  if (hdrSkippedIndices.size > 0) {
+    for (let i = resolvedVideos.length - 1; i >= 0; i--) {
+      if (hdrSkippedIndices.has(i)) {
+        resolvedVideos.splice(i, 1);
+        videoMetadata.splice(i, 1);
+        videoColorSpaces.splice(i, 1);
+      }
+    }
+  }
 
   // Phase 2b: Re-encode VFR inputs to CFR so the fps filter in Phase 3 produces
   // the expected frame count. Only the used segment is transcoded.
