@@ -318,17 +318,20 @@ export function init(config: HyperShaderConfig): GsapTimeline {
             // images, iframe sandbox restrictions, etc.) the old hard-cut
             // was jarring. A CSS crossfade is strictly better UX.
             console.warn("[HyperShader] Capture failed, CSS crossfade fallback:", e);
-            const fromEl = document.getElementById(fromId);
-            const toEl = document.getElementById(toId);
-            if (fromEl && toEl) {
-              gsap.to(fromEl, { opacity: 0, duration: dur, ease });
-              gsap.fromTo(toEl, { opacity: 0 }, { opacity: 1, duration: dur, ease });
-            } else {
-              // Last-resort hard cut if elements are somehow missing
-              document.querySelectorAll<HTMLElement>(".scene").forEach((s) => {
-                s.style.opacity = "0";
-              });
-              if (toEl) toEl.style.opacity = "1";
+            const nowTime = tl.time();
+            const inWindow = nowTime >= T && nowTime < T + dur;
+            if (inWindow) {
+              const fromEl = document.getElementById(fromId);
+              const toEl = document.getElementById(toId);
+              if (fromEl && toEl) {
+                gsap.to(fromEl, { opacity: 0, duration: dur, ease });
+                gsap.fromTo(toEl, { opacity: 0 }, { opacity: 1, duration: dur, ease });
+              } else {
+                document.querySelectorAll<HTMLElement>(".scene").forEach((s) => {
+                  s.style.opacity = "0";
+                });
+                if (toEl) toEl.style.opacity = "1";
+              }
             }
             if (wasPlaying) tl.play();
           });
