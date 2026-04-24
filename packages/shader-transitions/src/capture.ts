@@ -1,4 +1,5 @@
 import html2canvas from "html2canvas";
+import { DEFAULT_WIDTH, DEFAULT_HEIGHT } from "./webgl.js";
 
 let patched = false;
 
@@ -29,8 +30,8 @@ export function initCapture(): void {
 export function captureScene(
   sceneEl: HTMLElement,
   bgColor: string,
-  width: number = 1920,
-  height: number = 1080,
+  width: number = DEFAULT_WIDTH,
+  height: number = DEFAULT_HEIGHT,
 ): Promise<HTMLCanvasElement> {
   return html2canvas(sceneEl, {
     width,
@@ -89,8 +90,8 @@ export function captureScene(
 export function captureIncomingScene(
   toScene: HTMLElement,
   bgColor: string,
-  width: number = 1920,
-  height: number = 1080,
+  width: number = DEFAULT_WIDTH,
+  height: number = DEFAULT_HEIGHT,
 ): Promise<HTMLCanvasElement> {
   return new Promise<HTMLCanvasElement>((resolve, reject) => {
     const origZ = toScene.style.zIndex;

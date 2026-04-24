@@ -160,8 +160,10 @@ export function init(config: HyperShaderConfig): GsapTimeline {
 
   const root = document.querySelector<HTMLElement>("[data-composition-id]");
   const compId = config.compositionId || root?.getAttribute("data-composition-id") || "main";
-  const compWidth = Number(root?.getAttribute("data-width") || DEFAULT_WIDTH);
-  const compHeight = Number(root?.getAttribute("data-height") || DEFAULT_HEIGHT);
+  const rawW = Number(root?.getAttribute("data-width"));
+  const rawH = Number(root?.getAttribute("data-height"));
+  const compWidth = Number.isFinite(rawW) && rawW > 0 ? rawW : DEFAULT_WIDTH;
+  const compHeight = Number.isFinite(rawH) && rawH > 0 ? rawH : DEFAULT_HEIGHT;
 
   // The Hyperframes engine injects a virtual-time shim (window.__HF_VIRTUAL_TIME__)
   // during render mode and composites every transition itself from the
@@ -190,11 +192,13 @@ export function init(config: HyperShaderConfig): GsapTimeline {
   if (!glCanvas) {
     glCanvas = document.createElement("canvas");
     glCanvas.id = "gl-canvas";
-    glCanvas.width = compWidth;
-    glCanvas.height = compHeight;
-    glCanvas.style.cssText = `position:absolute;top:0;left:0;width:${compWidth}px;height:${compHeight}px;z-index:100;pointer-events:none;display:none;`;
+    glCanvas.style.cssText = `position:absolute;top:0;left:0;z-index:100;pointer-events:none;display:none;`;
     (root || document.body).appendChild(glCanvas);
   }
+  glCanvas.width = compWidth;
+  glCanvas.height = compHeight;
+  glCanvas.style.width = `${compWidth}px`;
+  glCanvas.style.height = `${compHeight}px`;
 
   const gl = createContext(glCanvas, compWidth, compHeight);
   if (!gl) {
