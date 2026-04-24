@@ -28,6 +28,15 @@ interface NLELayoutProps {
     element: TimelineElement,
     style: { clip: string; label: string },
   ) => ReactNode;
+  onFileDrop?: (
+    files: File[],
+    placement?: Pick<TimelineElement, "start" | "track">,
+  ) => Promise<void> | void;
+  onDeleteElement?: (element: TimelineElement) => Promise<void> | void;
+  onAssetDrop?: (
+    assetPath: string,
+    placement: Pick<TimelineElement, "start" | "track">,
+  ) => Promise<void> | void;
   /** Persist timeline move actions back into source HTML */
   onMoveElement?: (
     element: TimelineElement,
@@ -61,6 +70,9 @@ export const NLELayout = memo(function NLELayout({
   onIframeRef,
   onCompositionChange,
   renderClipContent,
+  onFileDrop,
+  onDeleteElement,
+  onAssetDrop,
   onMoveElement,
   onResizeElement,
   onBlockedEditAttempt,
@@ -393,6 +405,9 @@ export const NLELayout = memo(function NLELayout({
                 onSeek={seek}
                 onDrillDown={handleDrillDown}
                 renderClipContent={renderClipContent}
+                onFileDrop={onFileDrop}
+                onDeleteElement={onDeleteElement}
+                onAssetDrop={onAssetDrop}
                 onMoveElement={onMoveElement}
                 onResizeElement={onResizeElement}
                 onBlockedEditAttempt={onBlockedEditAttempt}
