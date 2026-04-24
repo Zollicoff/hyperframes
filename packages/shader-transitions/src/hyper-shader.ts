@@ -5,8 +5,8 @@ import {
   createTexture,
   uploadTexture,
   renderShader,
-  WIDTH,
-  HEIGHT,
+  DEFAULT_WIDTH,
+  DEFAULT_HEIGHT,
   type AccentColors,
 } from "./webgl.js";
 import { getFragSource, type ShaderName } from "./shaders/registry.js";
@@ -160,6 +160,8 @@ export function init(config: HyperShaderConfig): GsapTimeline {
 
   const root = document.querySelector<HTMLElement>("[data-composition-id]");
   const compId = config.compositionId || root?.getAttribute("data-composition-id") || "main";
+  const compWidth = Number(root?.getAttribute("data-width") || DEFAULT_WIDTH);
+  const compHeight = Number(root?.getAttribute("data-height") || DEFAULT_HEIGHT);
 
   // The Hyperframes engine injects a virtual-time shim (window.__HF_VIRTUAL_TIME__)
   // during render mode and composites every transition itself from the
@@ -188,13 +190,13 @@ export function init(config: HyperShaderConfig): GsapTimeline {
   if (!glCanvas) {
     glCanvas = document.createElement("canvas");
     glCanvas.id = "gl-canvas";
-    glCanvas.width = WIDTH;
-    glCanvas.height = HEIGHT;
-    glCanvas.style.cssText = `position:absolute;top:0;left:0;width:${WIDTH}px;height:${HEIGHT}px;z-index:100;pointer-events:none;display:none;`;
+    glCanvas.width = compWidth;
+    glCanvas.height = compHeight;
+    glCanvas.style.cssText = `position:absolute;top:0;left:0;width:${compWidth}px;height:${compHeight}px;z-index:100;pointer-events:none;display:none;`;
     (root || document.body).appendChild(glCanvas);
   }
 
-  const gl = createContext(glCanvas);
+  const gl = createContext(glCanvas, compWidth, compHeight);
   if (!gl) {
     console.warn("[HyperShader] WebGL unavailable — shader transitions disabled.");
     const fallback = config.timeline || gsap.timeline({ paused: true });
@@ -225,7 +227,17 @@ export function init(config: HyperShaderConfig): GsapTimeline {
       const fromTex = textures.get(state.fromId);
       const toTex = textures.get(state.toId);
       if (fromTex && toTex) {
-        renderShader(gl, quadBuf, state.prog, fromTex, toTex, state.progress, accentColors);
+        renderShader(
+          gl,
+          quadBuf,
+          state.prog,
+          fromTex,
+          toTex,
+          state.progress,
+          accentColors,
+          compWidth,
+          compHeight,
+        );
       }
     }
   };
@@ -268,11 +280,11 @@ export function init(config: HyperShaderConfig): GsapTimeline {
         const wasPlaying = !tl.paused();
         if (wasPlaying) tl.pause();
 
-        captureScene(fromScene, bgColor)
+        captureScene(fromScene, bgColor, compWidth, compHeight)
           .then((fromCanvas) => {
             const fromTex = textures.get(fromId);
             if (fromTex) uploadTexture(gl, fromTex, fromCanvas);
-            return captureIncomingScene(toScene, bgColor);
+            return captureIncomingScene(toScene, bgColor, compWidth, compHeight);
           })
           .then((toCanvas) => {
             const toTex = textures.get(toId);

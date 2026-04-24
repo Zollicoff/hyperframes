@@ -26,10 +26,15 @@ export function initCapture(): void {
   patchCreatePattern();
 }
 
-export function captureScene(sceneEl: HTMLElement, bgColor: string): Promise<HTMLCanvasElement> {
+export function captureScene(
+  sceneEl: HTMLElement,
+  bgColor: string,
+  width: number = 1920,
+  height: number = 1080,
+): Promise<HTMLCanvasElement> {
   return html2canvas(sceneEl, {
-    width: 1920,
-    height: 1080,
+    width,
+    height,
     scale: 1,
     backgroundColor: bgColor,
     logging: false,
@@ -84,6 +89,8 @@ export function captureScene(sceneEl: HTMLElement, bgColor: string): Promise<HTM
 export function captureIncomingScene(
   toScene: HTMLElement,
   bgColor: string,
+  width: number = 1920,
+  height: number = 1080,
 ): Promise<HTMLCanvasElement> {
   return new Promise<HTMLCanvasElement>((resolve, reject) => {
     const origZ = toScene.style.zIndex;
@@ -105,7 +112,7 @@ export function captureIncomingScene(
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        captureScene(toScene, bgColor).then(resolve, reject).finally(restore);
+        captureScene(toScene, bgColor, width, height).then(resolve, reject).finally(restore);
       });
     });
   });
