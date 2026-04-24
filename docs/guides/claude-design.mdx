@@ -1,31 +1,37 @@
 ---
 title: Claude Design
-description: "Use HyperFrames from Claude Design with a GitHub-hosted skill entry point that pulls the repo's existing skills and preview patterns."
+description: "Create HyperFrames video drafts in Claude Design using a template-first skill, then refine in any AI coding agent."
 ---
 
-Claude Design needs a different setup than Claude Code, Cursor, or Codex. The local `npx skills add heygen-com/hyperframes` flow is the right path for coding agents. For Claude Design, attach the HyperFrames skill file to your chat — empirically that produces sharper, more rule-compliant output than pasting the URL.
+Claude Design produces a **valid first draft** of a HyperFrames video — brand identity, scene content, layout, animations, and transitions. You then download the ZIP and refine in any AI coding agent (Claude Code, Cursor, Codex, Windsurf, etc.) with linting and live preview.
 
-## Get the skill
+## Get started
 
-<CardGroup cols={2}>
-  <Card
-    title="Download SKILL.md"
-    icon="download"
-    href="https://raw.githubusercontent.com/heygen-com/hyperframes/main/skills/claude-design-hyperframes/SKILL.md"
-  >
-    Save the file, then drag it into a Claude Design chat as an attachment.
-  </Card>
-  <Card
-    title="View on GitHub"
-    icon="github"
-    href="https://github.com/heygen-com/hyperframes/blob/main/skills/claude-design-hyperframes/SKILL.md"
-  >
-    Read the skill, copy sections, or link to it in a prompt.
-  </Card>
-</CardGroup>
+<Steps>
+  <Step title="Download the skill">
+    Save [`SKILL.md`](https://raw.githubusercontent.com/heygen-com/hyperframes/main/skills/claude-design-hyperframes/SKILL.md) to your computer.
+  </Step>
+  <Step title="Open Claude Design">
+    Start a new chat at [claude.ai](https://claude.ai) with Claude Design enabled.
+  </Step>
+  <Step title="Attach the skill + describe your video">
+    Drag the SKILL.md file into the chat. Describe what you want — include screenshots, brand assets, or a palette if you have them.
+  </Step>
+  <Step title="Download the ZIP">
+    Claude Design produces `index.html`, `preview.html`, `README.md`, and `DESIGN.md`. Download the ZIP.
+  </Step>
+  <Step title="Refine in any AI coding agent">
+    Open the project in Claude Code, Cursor, Codex, or any agent with terminal access for animation polish, timing, and production QA.
+    ```bash
+    npx skills add heygen-com/hyperframes   # install skills (one-time)
+    npx hyperframes lint                     # should pass with zero errors
+    npx hyperframes preview                  # open the studio
+    ```
+  </Step>
+</Steps>
 
 <Tip>
-  **Prefer attaching the file over pasting the URL.** Claude Design reads file attachments natively with detail preserved. URL-driven runs produce usable output but consistently miss more rules than attachment-driven runs.
+  **Attach the file, don't paste the URL.** Claude Design reads file attachments natively with detail preserved. URL-driven runs produce usable output but consistently miss more rules.
 </Tip>
 
 ## Which setup to use
@@ -36,40 +42,51 @@ Claude Design needs a different setup than Claude Code, Cursor, or Codex. The lo
 | Claude Code                 | `npx skills add heygen-com/hyperframes`, then use `/hyperframes`                                                              |
 | Cursor / Codex / Gemini CLI | `npx skills add heygen-com/hyperframes`                                                                                       |
 
-## Prompt shape for Claude Design
+## How the skill works
 
-Claude Design does not use slash commands. Lead with the skill file (attached or URL), describe the video, and ideally give Claude Design something to synthesize from — screenshots, a brand PDF, a reference video, a pasted palette, or at minimum a vibe in words.
+The skill gives Claude Design **pre-valid HTML skeletons** — the structural rules (data attributes, timeline registration, scene visibility, preview token forwarding) are already embedded. Claude Design fills in the creative work:
 
-The skill reads inputs in this order of reliability: **attachments → pasted content → web research → URLs**. A modern SPA homepage returns almost nothing via `web_fetch` because JavaScript isn't executed, so brand-accurate output on brief like "make a video for linear.app" depends on attaching screenshots or letting Claude Design search for the brand's blog, press, or Wikipedia.
+1. **Palette + typography** — CSS custom properties on `:root`
+2. **Scene content** — text, images, layout inside `.scene-content` wrappers
+3. **Animations** — GSAP entrance tweens and mid-scene activity
+4. **Transitions** — hard cuts for most scenes, shader transitions at 2-3 key moments
 
-Strong Claude Design prompts usually include:
+This template-first approach means the output passes `npx hyperframes lint` with zero errors on first download — Claude Code can start refining immediately without structural fixes.
 
-- the attached skill file (or its URL)
-- the source material: screenshots, a brand PDF, a reference video, pasted copy, or a URL
-- duration and aspect ratio
-- tone or visual direction (if you have one — otherwise let Claude Design ask)
-- explicit deliverables: `index.html`, `preview.html`, `README.md`
-
-## Copy-paste prompts
+## Example prompts
 
 <CardGroup cols={1}>
-  <Card title="Rich brief (attach SKILL.md + screenshots)">
+  <Card title="Feature announcement (attach SKILL.md)">
     ```text
-    Use the attached skill. Make a 30-second 16:9 product walkthrough for my app,
-    matching the design in these screenshots. 5 scenes: hero, three features,
-    closing CTA. Shader transitions between scenes.
+    Use the attached skill. I just shipped dark mode for my app. Make me a
+    15-second Instagram reel announcing it.
+
+    - App name: Taskflow
+    - Primary color: #6C5CE7
+    - The vibe is clean, minimal, dark
+    - Key stat: "47% of users requested this"
     ```
   </Card>
-  <Card title="Pasted-content brief (attach SKILL.md + paste your copy)">
+  <Card title="Founder pitch (attach SKILL.md)">
     ```text
-    Use the attached skill. 30s hero reel with this copy for each scene:
+    Use the attached skill. 25-second LinkedIn video for my startup.
 
-    1. "The fast web broke us."
-    2. "Every app optimized for attention. None for thought."
-    3. "Something is changing. Blogs are back."
-    4. "Welcome to the slow web."
+    Problem: Sales teams waste 3 hours/day on manual CRM updates.
+    Solution: AutoCRM — AI that logs every call, email, and meeting.
+    Traction: 200+ teams, $1.2M ARR, 18% MoM growth.
+    CTA: autocrmhq.com
 
-    Dark theme, editorial, serif typography (not Playfair).
+    Professional but not corporate. Think Linear or Vercel energy.
+    ```
+  </Card>
+  <Card title="Stat highlight (attach SKILL.md)">
+    ```text
+    Use the attached skill. 10-second reel. Just one big number:
+
+    "$4.2 billion processed in Q1 2026"
+
+    Dark background, the number should animate up from zero. Subtle,
+    confident. End with logo placeholder and "stripe.com"
     ```
   </Card>
   <Card title="Sparse brief (attach SKILL.md, let it ask)">
@@ -77,86 +94,47 @@ Strong Claude Design prompts usually include:
     Use the attached skill. Make a 30-second launch video for Orbit.
     ```
 
-    The skill will ask ONE short question offering five input channels
-    (screenshot, PDF, reference video, vibe word, must-have element) plus
-    a "just build" escape hatch before generating.
-  </Card>
-  <Card title="Static URL brief (editorial piece, not a SPA)">
-    ```text
-    Use the HyperFrames Claude Design skill at
-    https://github.com/heygen-com/hyperframes/blob/main/skills/claude-design-hyperframes/SKILL.md
-    and turn https://www.anthropic.com/news/claude-design-anthropic-labs into a
-    45-second editorial explainer. Keep copy close to the article's real headlines.
-    ```
+    The skill asks ONE short clarifying question before generating.
   </Card>
 </CardGroup>
 
-## Preview with `@hyperframes/player`
+## What to include in your prompt
 
-When Claude Design generates a `preview.html`, it embeds the composition with `<hyperframes-player>` and forwards the Claude Design sandbox's preview token into the iframe src. Without the token forward, the in-pane preview renders black (the sandbox serves a `"preview token required"` placeholder to the iframe).
+Claude Design reads inputs in this order of reliability: **attachments > pasted content > web research > URLs**.
 
-Copy this template verbatim:
+| Input type | What it gives Claude Design |
+| --- | --- |
+| Screenshots / PDFs / brand guides | Palette, typography, UI patterns, tone — strongest source |
+| Pasted hex codes, typefaces, copy | Authoritative for what it covers |
+| Brand name (well-known) | Claude Design can research blogs, press, Wikipedia |
+| SPA URL (React/Vue homepage) | Returns near-empty shell — pivot to blog/press instead |
 
-```html
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>HyperFrames Preview</title>
-  <style>html,body{margin:0;padding:0;background:#111;height:100%;overflow:hidden}</style>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@hyperframes/player"></script>
-</head>
-<body>
-  <hyperframes-player id="p" controls autoplay muted
-    style="display:block;width:100vw;height:100vh"></hyperframes-player>
-  <script>
-    document.getElementById("p").setAttribute(
-      "src",
-      "./index.html" + location.search,
-    );
-  </script>
-</body>
-</html>
+The more specific your prompt, the better the output. Include palette, fonts, duration, and scene ideas when you have them.
+
+## Known limitations
+
+- **In-pane preview** — scrubbing is unreliable in Claude Design's iframe sandbox. Download and use `npx hyperframes preview` locally for reliable playback.
+- **No linting** — Claude Design can't run `npx hyperframes lint`. The template-first skeletons handle structural validity, but the self-review checklist is the only QA before download.
+- **No shaders on vertical** — HyperShader's WebGL canvas is hardcoded to 1920x1080. Vertical (1080x1920) compositions use hard cuts only.
+- **3 fetch limit** — Claude Design limits web fetches per turn. All critical rules are inlined in the skill; external references are for edge cases only.
+- **Seeking backwards** — scrubbing backwards in the in-pane preview can show blank frames (async capture race condition). Forward seeking usually works.
+
+## The handoff to your coding agent
+
+Claude Design's output is a valid first draft. Open it in Claude Code, Cursor, Codex, or any AI coding agent with terminal access:
+
+```bash
+npx skills add heygen-com/hyperframes   # one-time setup
+npx hyperframes lint                     # verify structure
+npx hyperframes preview                  # open the studio
 ```
 
-When `location.search` is empty (opened locally, outside Claude Design's sandbox), the token-forward line is a no-op and the player loads `./index.html` as expected.
+Then iterate:
 
-The composition (`index.html`) must also pre-load the HyperFrames runtime right after GSAP so the player can drive playback inside Claude Design's sandbox:
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@hyperframes/core/dist/hyperframe.runtime.iife.js"></script>
-```
-
-If a classic script tag is needed instead of ESM, use the global player build with the same token-forwarding script:
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/@hyperframes/player/dist/hyperframes-player.global.js"></script>
-<hyperframes-player id="p" controls autoplay muted
-  style="display:block;width:100vw;height:100vh"></hyperframes-player>
-<script>
-  document.getElementById("p").setAttribute(
-    "src",
-    "./index.html" + location.search,
-  );
-</script>
-```
-
-See [`@hyperframes/player`](/packages/player) for the full API and framework examples.
-
-## What the skill teaches Claude Design
-
-The skill is self-contained — it includes every HyperFrames-specific contract and every known Claude Design sandbox workaround, so Claude Design rarely needs to fetch additional references. Highlights:
-
-- An explicit opening redirect: Claude Design is told NOT to reach for its default video artifacts (`copy_starter_component` with `kind: "animations.jsx"`, the built-in "Animated video" skill, React + Babel JSX, hand-rolled scale-to-fit stage wrappers). This is the single change that most reliably keeps Claude Design on the HyperFrames path
-- Correct `data-*` composition structure, the clip contract on scenes, and paused GSAP timelines registered on `window.__timelines`
-- Shader-transition timing rules: transitions must span the scene boundary (not start at it), animated content must be wrapped in `<div class="scene-content">` so its pre-animation state doesn't leak into the WebGL texture, and the `scenes.length === transitions.length + 1` invariant (with `flash-through-white` as the invisible-bridge escape hatch)
-- Sandbox-compatible preview: token-forwarding `preview.html` template, runtime pre-load in `index.html`, `data-composition-id` ↔ `__timelines` key match (and a convention that the root element's DOM `id` matches too)
-- Attachment-first input model: read screenshots / PDFs / reference videos when provided, otherwise ask one short clarifying question before generating
-- A banned-font list (including Fraunces, Inter Tight, and common AI defaults) plus a banned-pairings line to break the training-data monoculture
-- Deterministic render-safe animation choices (no `Date.now()`, no unseeded `Math.random()`, no `repeat: -1`, no `stagger: { from: "random" }`)
-- Four worked-example anti-patterns with WRONG/RIGHT code pairs — exit tweens before shader transitions, non-deterministic `stagger` origins, absolute-positioned content containers, and SVG filter data URLs as `background-image` (the last one causes `SecurityError` on Safari + cross-origin iframe environments)
-- A `README.md` template for the end user with `npx hyperframes doctor` / `preview` / `render` commands and FFmpeg install instructions
+- "Make scene 3's entrance snappier"
+- "Add a counter animation to the stat in scene 5"
+- "Tighten the pacing — scenes 4 and 6 feel too long"
+- "Change the shader on transition 2 to glitch"
 
 ## Next steps
 
