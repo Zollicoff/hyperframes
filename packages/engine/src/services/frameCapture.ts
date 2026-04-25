@@ -249,8 +249,16 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
   });
 
   page.on("pageerror", (err) => {
-    const text = `[Browser:PAGEERROR] ${err instanceof Error ? err.message : String(err)}`;
-    console.error(text);
+    const message = err instanceof Error ? err.message : String(err);
+    const text = `[Browser:PAGEERROR] ${message}`;
+
+    // Benign play/pause race during frame capture — suppress terminal noise, keep in buffer.
+    const isPlayAbort =
+      /^AbortError:/.test(message) && message.includes("play()") && message.includes("pause()");
+    if (!isPlayAbort) {
+      console.error(text);
+    }
+
     session.browserConsoleBuffer.push(text);
     if (session.browserConsoleBuffer.length > BROWSER_CONSOLE_BUFFER_SIZE) {
       session.browserConsoleBuffer.shift();
