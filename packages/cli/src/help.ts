@@ -32,6 +32,7 @@ const GROUPS: Group[] = [
     title: "Project",
     commands: [
       ["lint", "Validate a composition for common mistakes"],
+      ["inspect", "Inspect rendered visual layout across the timeline"],
       ["snapshot", "Capture key frames as PNG screenshots for visual verification"],
       ["info", "Print project metadata"],
       ["compositions", "List all compositions in a project"],
@@ -77,6 +78,7 @@ const ROOT_EXAMPLES: Example[] = [
   ["Render to MP4", "hyperframes render -o out.mp4"],
   ["Transparent WebM overlay", "hyperframes render --format webm -o out.webm"],
   ["Validate your composition", "hyperframes lint"],
+  ["Inspect visual layout", "hyperframes inspect"],
   ["Check system dependencies", "hyperframes doctor"],
 ];
 
