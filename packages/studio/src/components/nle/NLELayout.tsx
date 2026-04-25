@@ -392,7 +392,8 @@ export const NLELayout = memo(function NLELayout({
           <div className="flex flex-col flex-shrink-0" style={{ height: timelineH }}>
             {/* Timeline tracks */}
             <div
-              className="flex-1 min-h-0 overflow-hidden bg-neutral-950"
+              // flex-col: toolbar takes natural height, Timeline fills remainder.
+              className="flex flex-col flex-1 min-h-0 overflow-hidden bg-neutral-950"
               onDoubleClick={(e) => {
                 if ((e.target as HTMLElement).closest("[data-clip]")) return;
                 if (compositionStack.length > 1) {
@@ -400,7 +401,7 @@ export const NLELayout = memo(function NLELayout({
                 }
               }}
             >
-              {timelineToolbar}
+              <div className="flex-shrink-0">{timelineToolbar}</div>
               <Timeline
                 onSeek={seek}
                 onDrillDown={handleDrillDown}
