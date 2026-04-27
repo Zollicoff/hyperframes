@@ -207,8 +207,40 @@ export type RenderStatus =
 export interface RenderConfig {
   fps: 24 | 30 | 60;
   quality: "draft" | "standard" | "high";
-  /** Output container format. WebM uses VP9+alpha, MOV uses ProRes 4444+alpha for transparency. */
-  format?: "mp4" | "webm" | "mov";
+  /**
+   * Output container format. Defaults to `"mp4"`; existing renders are
+   * unaffected unless this field is set explicitly.
+   *
+   * - `"mp4"`: H.264 (or H.265 + HDR10 when `hdr: true`). Opaque. The
+   *   default streaming/social deliverable. Faststart is applied so the
+   *   `moov` atom sits at the file start and the file plays from a
+   *   partial download.
+   * - `"webm"`: VP9 + `yuva420p` pixel format → **true alpha channel**, no
+   *   chroma key. Plays in Chrome, Edge, and Firefox; Safari support for
+   *   alpha-WebM is incomplete. Use this when the output should drop
+   *   straight into a `<video>` over a colored background on the web.
+   *   Audio is muxed as Opus.
+   * - `"mov"`: ProRes 4444 + `yuva444p10le` → **true alpha channel +
+   *   10-bit color**. Sized for editor ingest (Premiere, Final Cut Pro,
+   *   DaVinci Resolve), not direct web playback. Audio is muxed as AAC.
+   * - `"png-sequence"`: a directory of zero-padded RGBA PNGs
+   *   (`frame_000001.png` …). Lossless alpha, largest on disk, no muxed
+   *   audio (an `audio.aac` sidecar is written alongside the PNGs when
+   *   the composition has audio elements). Use for After Effects / Nuke
+   *   / Fusion ingest, or when frames need post-processing before
+   *   encoding. `outputPath` is treated as a directory; it is created if
+   *   it doesn't exist.
+   *
+   * Alpha output (`"webm"`, `"mov"`, `"png-sequence"`) automatically
+   * forces screenshot capture (Chrome's BeginFrame compositor does not
+   * preserve alpha on Linux headless-shell) and disables HDR — HDR +
+   * alpha is not a supported combination, a warning is logged and HDR
+   * falls back to SDR. The transparent-background CSS is injected by
+   * the engine's `initTransparentBackground` helper, so authors should
+   * not paint a fullscreen `body` / `#root` background in their
+   * compositions when targeting alpha output.
+   */
+  format?: "mp4" | "webm" | "mov" | "png-sequence";
   workers?: number;
   useGpu?: boolean;
   debug?: boolean;
@@ -997,17 +1029,22 @@ export async function executeRenderJob(
   };
   const perfOutputPath = join(workDir, "perf-summary.json");
   const cfg = { ...(job.config.producerConfig ?? resolveConfig()) };
-  const outputFormat = (job.config.format ?? "mp4") as "mp4" | "webm" | "mov";
+  const outputFormat = (job.config.format ?? "mp4") as "mp4" | "webm" | "mov" | "png-sequence";
   const isWebm = outputFormat === "webm";
   const isMov = outputFormat === "mov";
-  const needsAlpha = isWebm || isMov;
+  const isPngSequence = outputFormat === "png-sequence";
+  const needsAlpha = isWebm || isMov || isPngSequence;
   // Transparency requires screenshot mode — beginFrame doesn't support alpha channel
   if (needsAlpha) {
     cfg.forceScreenshot = true;
   }
   const enableChunkedEncode = cfg.enableChunkedEncode;
   const chunkedEncodeSize = cfg.chunkSizeFrames;
-  const enableStreamingEncode = cfg.enableStreamingEncode;
+  // Streaming encode pipes captured frames through ffmpeg's stdin to produce
+  // a single video file. png-sequence has no encoded video output — frames go
+  // straight to disk — so the streaming branch is bypassed regardless of the
+  // engine config flag.
+  const enableStreamingEncode = cfg.enableStreamingEncode && !isPngSequence;
 
   // Periodic memory sampler — surfaces peak RSS/heap so the benchmark harness
   // can detect memory regressions (e.g. unbounded image-cache growth) that
@@ -1494,7 +1531,8 @@ export async function executeRenderJob(
     }
     if (effectiveHdr && outputFormat !== "mp4") {
       log.warn(
-        `[Render] HDR source detected but format is ${outputFormat} — falling back to SDR. Use --format mp4 for HDR10 output.`,
+        `[Render] HDR source detected but format is "${outputFormat}" — falling back to SDR. ` +
+          `HDR + alpha is not supported. Use --format mp4 for HDR10 output.`,
       );
       effectiveHdr = undefined;
     }
@@ -1571,7 +1609,16 @@ export async function executeRenderJob(
 
     const workerCount = calculateOptimalWorkers(totalFrames, job.config.workers, cfg);
 
-    const FORMAT_EXT: Record<string, string> = { mp4: ".mp4", webm: ".webm", mov: ".mov" };
+    // png-sequence is "no container" — outputPath is treated as a directory and
+    // the encode/mux/faststart stages are skipped entirely. The empty extension
+    // keeps `videoOnlyPath` (which is constructed below) sensible even though
+    // it will not be written.
+    const FORMAT_EXT: Record<string, string> = {
+      mp4: ".mp4",
+      webm: ".webm",
+      mov: ".mov",
+      "png-sequence": "",
+    };
     const videoExt = FORMAT_EXT[outputFormat] ?? ".mp4";
     const videoOnlyPath = join(workDir, `video-only${videoExt}`);
     // Only use the HDR encoder preset when there's HDR content to pass through —
@@ -1581,7 +1628,12 @@ export async function executeRenderJob(
     const nativeHdrIds = new Set([...nativeHdrVideoIds, ...nativeHdrImageIds]);
     const hasHdrContent = effectiveHdr && nativeHdrIds.size > 0;
     const encoderHdr = hasHdrContent ? effectiveHdr : undefined;
-    const preset = getEncoderPreset(job.config.quality, outputFormat, encoderHdr);
+    // png-sequence has no encoder, but the rest of the orchestrator still
+    // reads `preset.quality` for `effectiveQuality` and `preset.codec` for
+    // unrelated bookkeeping. Fall back to the mp4 preset shape — its values
+    // are never written to ffmpeg in the png-sequence path.
+    const presetFormat: "mp4" | "webm" | "mov" = isPngSequence ? "mp4" : outputFormat;
+    const preset = getEncoderPreset(job.config.quality, presetFormat, encoderHdr);
 
     // CLI overrides (--crf, --video-bitrate) flow through job.config and must
     // win over the preset-derived defaults. The CLI enforces mutual exclusivity
@@ -2535,47 +2587,80 @@ export async function executeRenderJob(
 
           perfStages.captureMs = Date.now() - stage4Start;
 
-          // ── Stage 5: Encode ─────────────────────────────────────────────────
-          const stage5Start = Date.now();
-          updateJobStatus(job, "encoding", "Encoding video", 75, onProgress);
-
-          const frameExt = needsAlpha ? "png" : "jpg";
-          const framePattern = `frame_%06d.${frameExt}`;
-          const encoderOpts = {
-            fps: job.config.fps,
-            width,
-            height,
-            codec: preset.codec,
-            preset: preset.preset,
-            quality: effectiveQuality,
-            bitrate: effectiveBitrate,
-            pixelFormat: preset.pixelFormat,
-            useGpu: job.config.useGpu,
-            hdr: preset.hdr,
-          };
-          const encodeResult = enableChunkedEncode
-            ? await encodeFramesChunkedConcat(
-                framesDir,
-                framePattern,
-                videoOnlyPath,
-                encoderOpts,
-                chunkedEncodeSize,
-                abortSignal,
-              )
-            : await encodeFramesFromDir(
-                framesDir,
-                framePattern,
-                videoOnlyPath,
-                encoderOpts,
-                abortSignal,
+          if (isPngSequence) {
+            // ── Stage 5 (png-sequence): copy captured PNGs to outputDir ──────
+            // No encoder, no mux, no faststart — captured frames already carry
+            // alpha and are the deliverable. We rename to `frame_NNNNNN.png`
+            // (zero-padded) so consumers (After Effects, Nuke, Fusion, ffmpeg
+            // image2 demuxer) can globbed-import without surprises.
+            const stage5Start = Date.now();
+            updateJobStatus(job, "encoding", "Writing PNG sequence", 75, onProgress);
+            if (!existsSync(outputPath)) mkdirSync(outputPath, { recursive: true });
+            const captured = readdirSync(framesDir)
+              .filter((name) => name.endsWith(".png"))
+              .sort();
+            if (captured.length === 0) {
+              throw new Error(
+                `[Render] png-sequence output requested but no PNGs were captured to ${framesDir}`,
               );
-          assertNotAborted();
+            }
+            captured.forEach((name, i) => {
+              const dst = join(outputPath, `frame_${String(i + 1).padStart(6, "0")}.png`);
+              copyFileSync(join(framesDir, name), dst);
+            });
+            if (hasAudio && existsSync(audioOutputPath)) {
+              // Sidecar audio for callers that need to re-mux later. png-sequence
+              // has no container of its own, so this is the only place audio
+              // can land alongside the frames.
+              copyFileSync(audioOutputPath, join(outputPath, "audio.aac"));
+              log.info(
+                `[Render] png-sequence: audio.aac sidecar written to ${outputPath}/audio.aac`,
+              );
+            }
+            perfStages.encodeMs = Date.now() - stage5Start;
+          } else {
+            // ── Stage 5: Encode ───────────────────────────────────────────────
+            const stage5Start = Date.now();
+            updateJobStatus(job, "encoding", "Encoding video", 75, onProgress);
 
-          if (!encodeResult.success) {
-            throw new Error(`Encoding failed: ${encodeResult.error}`);
+            const frameExt = needsAlpha ? "png" : "jpg";
+            const framePattern = `frame_%06d.${frameExt}`;
+            const encoderOpts = {
+              fps: job.config.fps,
+              width,
+              height,
+              codec: preset.codec,
+              preset: preset.preset,
+              quality: effectiveQuality,
+              bitrate: effectiveBitrate,
+              pixelFormat: preset.pixelFormat,
+              useGpu: job.config.useGpu,
+              hdr: preset.hdr,
+            };
+            const encodeResult = enableChunkedEncode
+              ? await encodeFramesChunkedConcat(
+                  framesDir,
+                  framePattern,
+                  videoOnlyPath,
+                  encoderOpts,
+                  chunkedEncodeSize,
+                  abortSignal,
+                )
+              : await encodeFramesFromDir(
+                  framesDir,
+                  framePattern,
+                  videoOnlyPath,
+                  encoderOpts,
+                  abortSignal,
+                );
+            assertNotAborted();
+
+            if (!encodeResult.success) {
+              throw new Error(`Encoding failed: ${encodeResult.error}`);
+            }
+
+            perfStages.encodeMs = Date.now() - stage5Start;
           }
-
-          perfStages.encodeMs = Date.now() - stage5Start;
         }
       } finally {
         // Defensive cleanup: if the streaming encoder branch threw before
@@ -2609,29 +2694,33 @@ export async function executeRenderJob(
     fileServer = null;
 
     // ── Stage 6: Assemble ───────────────────────────────────────────────
-    const stage6Start = Date.now();
-    updateJobStatus(job, "assembling", "Assembling final video", 90, onProgress);
+    // Skipped for png-sequence — there is no encoded video to mux/faststart.
+    // The frames were copied directly to outputPath in Stage 5.
+    if (!isPngSequence) {
+      const stage6Start = Date.now();
+      updateJobStatus(job, "assembling", "Assembling final video", 90, onProgress);
 
-    if (hasAudio) {
-      const muxResult = await muxVideoWithAudio(
-        videoOnlyPath,
-        audioOutputPath,
-        outputPath,
-        abortSignal,
-      );
-      assertNotAborted();
-      if (!muxResult.success) {
-        throw new Error(`Audio muxing failed: ${muxResult.error}`);
+      if (hasAudio) {
+        const muxResult = await muxVideoWithAudio(
+          videoOnlyPath,
+          audioOutputPath,
+          outputPath,
+          abortSignal,
+        );
+        assertNotAborted();
+        if (!muxResult.success) {
+          throw new Error(`Audio muxing failed: ${muxResult.error}`);
+        }
+      } else {
+        const faststartResult = await applyFaststart(videoOnlyPath, outputPath, abortSignal);
+        assertNotAborted();
+        if (!faststartResult.success) {
+          throw new Error(`Faststart failed: ${faststartResult.error}`);
+        }
       }
-    } else {
-      const faststartResult = await applyFaststart(videoOnlyPath, outputPath, abortSignal);
-      assertNotAborted();
-      if (!faststartResult.success) {
-        throw new Error(`Faststart failed: ${faststartResult.error}`);
-      }
+
+      perfStages.assembleMs = Date.now() - stage6Start;
     }
-
-    perfStages.assembleMs = Date.now() - stage6Start;
 
     // ── Complete ─────────────────────────────────────────────────────────
     job.outputPath = outputPath;
@@ -2681,8 +2770,11 @@ export async function executeRenderJob(
 
     // ── Cleanup ─────────────────────────────────────────────────────────
     if (job.config.debug) {
-      // Copy output MP4 into debug dir for easy access
-      if (existsSync(outputPath)) {
+      // Copy output MP4 (or single-file alpha output) into the debug dir for
+      // easy access. Skipped for png-sequence: outputPath is a directory, not
+      // a single file — the captured frames already live in `framesDir` under
+      // workDir during a debug run anyway.
+      if (!isPngSequence && existsSync(outputPath)) {
         const debugOutput = join(workDir, `output${videoExt}`);
         copyFileSync(outputPath, debugOutput);
       }

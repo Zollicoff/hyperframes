@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      /*
+        Intentionally NO body / #root background — the alpha pipeline forces
+        the page background fully transparent. We DO set a background on
+        .card to verify that *inner* element backgrounds survive the
+        force-transparent override.
+      */
+      .card {
+        position: absolute;
+        left: 50px;
+        top: 50px;
+        width: 100px;
+        height: 100px;
+        background: rgb(255, 0, 0);
+      }
+    </style>
+  </head>
+  <body
+    data-composition-id="transparency-regression"
+    data-duration="1"
+    data-width="200"
+    data-height="200"
+  >
+    <div class="card"></div>
+    <script>
+      // Minimal seek protocol — the composition is static.
+      window.__hf = {
+        duration: 1,
+        seek: () => {},
+      };
+    </script>
+  </body>
+</html>
