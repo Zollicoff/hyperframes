@@ -18,11 +18,13 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { importPackagesOrBootstrap } from "./package-loader.mjs";
+import { hyperframesPackageSpec, importPackagesOrBootstrap } from "./package-loader.mjs";
 
 // Use the producer's file server — it auto-injects the HyperFrames runtime
 // and render-seek bridge, so raw authoring HTML works without a build step.
-const packages = await importPackagesOrBootstrap(["@hyperframes/producer", "sharp"]);
+const packages = await importPackagesOrBootstrap(["@hyperframes/producer", "sharp"], {
+  npmPackages: [hyperframesPackageSpec("@hyperframes/producer"), "sharp@0.34.5"],
+});
 const sharp = packages.sharp.default;
 const {
   createFileServer,

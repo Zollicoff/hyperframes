@@ -3,10 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, parse, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BOOTSTRAP_ENV = "HYPERFRAMES_SKILL_DEPS_BOOTSTRAPPED";
+const BOOTSTRAP_CONFIRM_ENV = "HYPERFRAMES_SKILL_BOOTSTRAP_DEPS";
 const NODE_MODULES_ENV = "HYPERFRAMES_SKILL_NODE_MODULES";
 
 export async function importPackagesOrBootstrap(packageNames, options = {}) {
@@ -20,7 +22,10 @@ export async function importPackagesOrBootstrap(packageNames, options = {}) {
   }
 
   if (missing.length > 0 && !process.env[BOOTSTRAP_ENV]) {
-    bootstrapWithNpmInstall(options.npmPackages ?? missing);
+    const npmPackages = options.npmPackages ?? missing;
+    assertPinnedPackageSpecs(npmPackages);
+    await confirmBootstrap(npmPackages);
+    bootstrapWithNpmInstall(npmPackages);
   }
 
   if (missing.length > 0) {
@@ -38,6 +43,19 @@ export async function importPackagesOrBootstrap(packageNames, options = {}) {
     modules[packageName] = await import(pathToFileURL(entry).href);
   }
   return modules;
+}
+
+export function hyperframesPackageSpec(packageName) {
+  const version = readBundledHyperframesVersion();
+  if (!version) {
+    throw new Error(
+      [
+        `Could not determine the bundled HyperFrames version for ${packageName}.`,
+        "Install the package yourself or pass a pinned options.npmPackages entry.",
+      ].join("\n"),
+    );
+  }
+  return `${packageName}@${version}`;
 }
 
 function resolvePackageEntry(packageName) {
@@ -60,6 +78,31 @@ function resolvePackageEntry(packageName) {
     }
   }
 
+  return null;
+}
+
+function readBundledHyperframesVersion() {
+  for (const ancestor of ancestors(HERE)) {
+    const directVersion = readPackageVersion(join(ancestor, "package.json"));
+    if (directVersion) return directVersion;
+
+    const monorepoCliVersion = readPackageVersion(
+      join(ancestor, "packages", "cli", "package.json"),
+    );
+    if (monorepoCliVersion) return monorepoCliVersion;
+  }
+  return null;
+}
+
+function readPackageVersion(packageJsonPath) {
+  try {
+    const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    if (manifest.name === "hyperframes" || manifest.name === "@hyperframes/cli") {
+      return typeof manifest.version === "string" ? manifest.version : null;
+    }
+  } catch {
+    // Keep searching ancestor package manifests.
+  }
   return null;
 }
 
@@ -115,6 +158,60 @@ function exportEntry(exports) {
   return null;
 }
 
+function assertPinnedPackageSpecs(packageSpecs) {
+  const unpinned = packageSpecs.filter((spec) => !hasVersionSpec(spec));
+  if (unpinned.length === 0) return;
+  throw new Error(
+    [
+      `Refusing to bootstrap unpinned package spec(s): ${unpinned.join(", ")}`,
+      "Pass pinned npm package specs, for example:",
+      `  ${packageSpecs.map((spec) => (hasVersionSpec(spec) ? spec : `${spec}@<version>`)).join(" ")}`,
+    ].join("\n"),
+  );
+}
+
+function hasVersionSpec(packageSpec) {
+  if (packageSpec.startsWith("@")) {
+    const slash = packageSpec.indexOf("/");
+    return slash !== -1 && packageSpec.indexOf("@", slash + 1) !== -1;
+  }
+  return packageSpec.includes("@");
+}
+
+async function confirmBootstrap(packageSpecs) {
+  if (process.env[BOOTSTRAP_CONFIRM_ENV] === "1") return;
+
+  const installLine = `npm install --ignore-scripts --no-save ${packageSpecs.map(shellQuote).join(" ")}`;
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      [
+        "Required helper package(s) are missing.",
+        "To allow a one-time temporary dependency bootstrap for this run, set:",
+        `  ${BOOTSTRAP_CONFIRM_ENV}=1`,
+        "The bootstrap command will be:",
+        `  ${installLine}`,
+      ].join("\n"),
+    );
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await rl.question(
+      [
+        "HyperFrames helper package(s) are missing.",
+        `Run a temporary install with lifecycle scripts disabled?`,
+        `  ${installLine}`,
+        "Proceed? [y/N] ",
+      ].join("\n"),
+    );
+    if (!/^(y|yes)$/i.test(answer.trim())) {
+      throw new Error("Dependency bootstrap cancelled.");
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 function ancestors(start) {
   const dirs = [];
   let current = resolve(start);
@@ -136,6 +233,7 @@ function bootstrapWithNpmInstall(packageNames) {
       "--silent",
       "--no-audit",
       "--no-fund",
+      "--ignore-scripts",
       "--no-save",
       "--prefix",
       installRoot,
