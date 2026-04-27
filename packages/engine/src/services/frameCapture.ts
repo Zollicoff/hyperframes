@@ -20,7 +20,12 @@ import {
   resolveHeadlessShellPath,
   type CaptureMode,
 } from "./browserManager.js";
-import { beginFrameCapture, getCdpSession, pageScreenshotCapture } from "./screenshotService.js";
+import {
+  beginFrameCapture,
+  getCdpSession,
+  pageScreenshotCapture,
+  initTransparentBackground,
+} from "./screenshotService.js";
 import { DEFAULT_CONFIG, type EngineConfig } from "../config.js";
 import type {
   CaptureOptions,
@@ -78,7 +83,11 @@ export async function createCaptureSession(
 ): Promise<CaptureSession> {
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
 
-  // Determine capture mode before building args — BeginFrame flags only apply on Linux
+  // Determine capture mode before building args — BeginFrame flags only apply on Linux.
+  // BeginFrame's compositor does not preserve alpha; callers that pass
+  // `options.format === "png"` for transparent capture should also set
+  // `config.forceScreenshot = true` (the producer's renderOrchestrator does this
+  // automatically when `RenderConfig.format` is an alpha-capable value).
   const headlessShell = resolveHeadlessShellPath(config);
   const isLinux = process.platform === "linux";
   const forceScreenshot = config?.forceScreenshot ?? DEFAULT_CONFIG.forceScreenshot;
@@ -144,15 +153,12 @@ export async function createCaptureSession(
   };
   await page.setViewport(viewport);
 
-  // For PNG capture (used by WebM/transparency), make the page background transparent
-  // so Chrome's screenshot captures alpha channel data. Must use the same CDP session
-  // that the screenshot service uses (getCdpSession caches per page).
-  if (options.format === "png") {
-    const cdp = await getCdpSession(page);
-    await cdp.send("Emulation.setDefaultBackgroundColorOverride", {
-      color: { r: 0, g: 0, b: 0, a: 0 },
-    });
-  }
+  // Transparent-background setup is intentionally NOT done here. Chrome resets
+  // the default-background-color override on navigation, and the
+  // `[data-composition-id]{background:transparent}` stylesheet that
+  // `initTransparentBackground` injects must land in a real `document.head`.
+  // See `initializeSession()` below — it calls `initTransparentBackground` for
+  // PNG captures after `page.goto(...)` and the `window.__hf` readiness poll.
 
   return {
     browser,
@@ -303,6 +309,17 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
 
     await page.evaluate(`document.fonts?.ready`);
 
+    // For PNG captures, force the page background fully transparent so the
+    // captured screenshots carry a real alpha channel. Must run AFTER
+    // navigation (Chrome resets the override on every goto) and AFTER the
+    // page is loaded (the injected stylesheet needs a real document.head).
+    // The override is overridden by `body { background: ... }` and
+    // `#root { background: ... }` rules — the helper handles that with a
+    // `[data-composition-id]{background:transparent !important}` injection.
+    if (session.options.format === "png") {
+      await initTransparentBackground(session.page);
+    }
+
     session.isInitialized = true;
     return;
   }
@@ -387,6 +404,16 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
 
   // Set base frame time ticks past warmup range
   session.beginFrameTimeTicks = (warmupTicks + 10) * session.beginFrameIntervalMs;
+
+  // For PNG captures, inject the transparent-background override + stylesheet
+  // (see the screenshot-mode branch above for the rationale). BeginFrame mode
+  // does not actually preserve alpha through its compositor — callers that
+  // need transparent output should set `forceScreenshot: true` so this branch
+  // is bypassed entirely. The call is left here as defense-in-depth for any
+  // future BeginFrame alpha support.
+  if (session.options.format === "png") {
+    await initTransparentBackground(session.page);
+  }
 
   session.isInitialized = true;
 }
