@@ -1,140 +1,11 @@
+import postcss, { type AtRule, type Node, type Rule } from "postcss";
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function escapeCssAttributeValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function findNextCssToken(css: string, start: number, token: "{" | ";"): number {
-  let quote: string | null = null;
-  let inComment = false;
-  for (let i = start; i < css.length; i++) {
-    const char = css[i];
-    const next = css[i + 1];
-    if (inComment) {
-      if (char === "*" && next === "/") {
-        inComment = false;
-        i++;
-      }
-      continue;
-    }
-    if (quote) {
-      if (char === "\\") {
-        i++;
-      } else if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      inComment = true;
-      i++;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === token) return i;
-  }
-  return -1;
-}
-
-function findMatchingCssBrace(css: string, openIndex: number): number {
-  let depth = 0;
-  let quote: string | null = null;
-  let inComment = false;
-  for (let i = openIndex; i < css.length; i++) {
-    const char = css[i];
-    const next = css[i + 1];
-    if (inComment) {
-      if (char === "*" && next === "/") {
-        inComment = false;
-        i++;
-      }
-      continue;
-    }
-    if (quote) {
-      if (char === "\\") {
-        i++;
-      } else if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      inComment = true;
-      i++;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === "{") {
-      depth++;
-    } else if (char === "}") {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-function splitSelectorList(selectorText: string): string[] {
-  const selectors: string[] = [];
-  let current = "";
-  let quote: string | null = null;
-  let inComment = false;
-  let bracketDepth = 0;
-  let parenDepth = 0;
-  for (let i = 0; i < selectorText.length; i++) {
-    const char = selectorText[i];
-    const next = selectorText[i + 1];
-    if (inComment) {
-      current += char;
-      if (char === "*" && next === "/") {
-        current += next;
-        inComment = false;
-        i++;
-      }
-      continue;
-    }
-    if (quote) {
-      current += char;
-      if (char === "\\") {
-        current += next ?? "";
-        i++;
-      } else if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      current += char + next;
-      inComment = true;
-      i++;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      current += char;
-      quote = char;
-      continue;
-    }
-    if (char === "[") bracketDepth++;
-    if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1);
-    if (char === "(") parenDepth++;
-    if (char === ")") parenDepth = Math.max(0, parenDepth - 1);
-    if (char === "," && bracketDepth === 0 && parenDepth === 0) {
-      selectors.push(current);
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  selectors.push(current);
-  return selectors;
 }
 
 function scopeSelector(selector: string, scope: string, compositionId: string): string {
@@ -168,60 +39,37 @@ function normalizeCompositionRootSelector(
     .replace(new RegExp(`(?:${timingAttr})+${compAttr}`, "g"), scope);
 }
 
-function scopeSelectorList(selectorText: string, scope: string, compositionId: string): string {
-  return splitSelectorList(selectorText)
-    .map((selector) => scopeSelector(selector, scope, compositionId))
-    .join(",");
+const GLOBAL_AT_RULES = new Set(["keyframes", "-webkit-keyframes", "font-face"]);
+
+function isAtRuleNode(node: Node["parent"]): node is AtRule {
+  return node?.type === "atrule";
 }
 
-function scopeCssBlock(css: string, scope: string, compositionId: string): string {
-  let output = "";
-  let index = 0;
-  const globalAtRules = new Set(["keyframes", "-webkit-keyframes", "font-face"]);
-
-  while (index < css.length) {
-    const braceIndex = findNextCssToken(css, index, "{");
-    if (braceIndex < 0) {
-      output += css.slice(index);
-      break;
+function isInsideGlobalAtRule(rule: Rule): boolean {
+  let current: Node["parent"] = rule.parent;
+  while (current) {
+    if (isAtRuleNode(current) && GLOBAL_AT_RULES.has(current.name.toLowerCase())) {
+      return true;
     }
-
-    const semicolonIndex = findNextCssToken(css, index, ";");
-    if (semicolonIndex >= 0 && semicolonIndex < braceIndex) {
-      output += css.slice(index, semicolonIndex + 1);
-      index = semicolonIndex + 1;
-      continue;
-    }
-
-    const closeIndex = findMatchingCssBrace(css, braceIndex);
-    if (closeIndex < 0) {
-      output += css.slice(index);
-      break;
-    }
-
-    const prelude = css.slice(index, braceIndex);
-    const body = css.slice(braceIndex + 1, closeIndex);
-    const trimmedPrelude = prelude.trim();
-    if (trimmedPrelude.startsWith("@")) {
-      const atRuleName = trimmedPrelude.match(/^@([-\w]+)/)?.[1]?.toLowerCase() ?? "";
-      const scopedBody = globalAtRules.has(atRuleName)
-        ? body
-        : scopeCssBlock(body, scope, compositionId);
-      output += `${prelude}{${scopedBody}}`;
-    } else {
-      output += `${scopeSelectorList(prelude, scope, compositionId)}{${body}}`;
-    }
-    index = closeIndex + 1;
+    current = current.parent;
   }
-
-  return output;
+  return false;
 }
 
 export function scopeCssToComposition(css: string, compositionId: string): string {
   const trimmedCompositionId = compositionId.trim();
   if (!css || !trimmedCompositionId) return css;
   const scope = `[data-composition-id="${escapeCssAttributeValue(trimmedCompositionId)}"]`;
-  return scopeCssBlock(css, scope, trimmedCompositionId);
+  const root = postcss.parse(css);
+
+  root.walkRules((rule) => {
+    if (isInsideGlobalAtRule(rule)) return;
+    rule.selectors = rule.selectors.map((selector) =>
+      scopeSelector(selector, scope, trimmedCompositionId),
+    );
+  });
+
+  return root.toResult({ map: false }).css;
 }
 
 export function wrapScopedCompositionScript(
