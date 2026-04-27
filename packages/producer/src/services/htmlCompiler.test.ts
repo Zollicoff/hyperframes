@@ -623,4 +623,42 @@ describe("template-wrapped sub-composition media offsets", () => {
     expect(compiled.html).toContain("new Proxy(window.document");
     expect(compiled.html).toContain("__hfNormalizeSelector");
   });
+
+  it("preserves the inferred composition boundary when the host has no composition id", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "hf-anonymous-host-"));
+    const compositionsDir = join(projectDir, "compositions");
+    mkdirSync(compositionsDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, "index.html"),
+      `<!DOCTYPE html>
+<html>
+  <body>
+    <div id="root" data-composition-id="root" data-width="640" data-height="360">
+      <div id="scene-host" data-composition-src="compositions/scene.html" data-start="0"></div>
+    </div>
+  </body>
+</html>`,
+    );
+    writeFileSync(
+      join(compositionsDir, "scene.html"),
+      `<template id="scene-template">
+  <div data-composition-id="scene" data-width="640" data-height="360" data-duration="4">
+    <style>.title { opacity: 0; }</style>
+    <h1 class="title">Scene</h1>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines.scene = { duration: () => 4 };
+    </script>
+  </div>
+</template>`,
+    );
+
+    const compiled = await compileForRender(projectDir, join(projectDir, "index.html"), projectDir);
+    const { document } = parseHTML(compiled.html);
+    const host = document.querySelector("#scene-host");
+
+    expect(host?.getAttribute("data-composition-id")).toBe("scene");
+    expect(host?.querySelector(".title")?.textContent).toBe("Scene");
+    expect(compiled.html).toContain('var __hfCompId = "scene";');
+  });
 });
